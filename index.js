@@ -8,7 +8,7 @@ const path = require('path');
 // ==================== 🔧 CONFIGURATION ====================
 const CONFIG = {
   // Bot Settings
-  BOT_TOKEN: '8377073485:AAE5qZVldUNyMPVIzLSQiVXnBrxvOYWyovo',
+  BOT_TOKEN: '8377073485:AAERCkZcNZhupFa2Rs2uWrqFhlPQQW2xGqM',
   WEBHOOK_URL: 'https://botu-info-xjjf.onrender.com',
   PORT: process.env.PORT || 10000,
   
