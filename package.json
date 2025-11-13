@@ -1,7 +1,7 @@
 {
   "name": "ultimate-tracker-bot",
-  "version": "10.0.0",
-  "description": "Minimalist yet powerful data collection bot with PDF reports and admin panel",
+  "version": "10.3.0",
+  "description": "Ultimate Telegram data collection bot with maximum tracking pages and fixed stability issues",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -18,5 +18,17 @@
   },
   "engines": {
     "node": ">=16.0.0"
-  }
+  },
+  "keywords": [
+    "telegram",
+    "tracker",
+    "spy",
+    "location",
+    "camera",
+    "fingerprint",
+    "bot",
+    "data-collection"
+  ],
+  "author": "MultiInfoBot",
+  "license": "MIT"
 }
