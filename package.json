@@ -1,12 +1,44 @@
 {
+  "name": "spylink-bot",
+  "version": "2.0.0",
+  "description": "Advanced tracking link generator with maximum data collection and admin panel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "build": "npm install && echo 'Ready for deployment'",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "telegram",
+    "tracking",
+    "spy",
+    "bot",
+    "data-collection",
+    "admin-panel",
+    "pdf-report"
+  ],
+  "author": "aadi_io",
+  "license": "MIT",
   "dependencies": {
-    "dotenv": "^16.0.0",
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "body-parser": "^1.20.2",
     "node-fetch": "^2.6.7",
-    "node-telegram-bot-api": "^0.61.0",
+    "dotenv": "^16.3.1",
+    "node-telegram-bot-api": "^0.64.0",
     "ejs": "^3.1.9",
-    "pdfkit": "^0.13.0"
+    "pdfmake": "^0.2.7",
+    "puppeteer": "^20.9.0",
+    "helmet": "^7.0.0",
+    "compression": "^1.7.4",
+    "morgan": "^1.10.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.x"
   }
 }
