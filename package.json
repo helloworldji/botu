@@ -1,24 +1,12 @@
 {
-  "name": "spylink-render-pro",
-  "version": "4.0.0",
-  "description": "Ultra-fast Telegram tracking bot hosted on Render.com — sends full victim data in single message. No PDF. No delays.",
+  "name": "spylink-render-pro-v6",
+  "version": "6.0.0",
+  "description": "✅ FIXED: Admin Panel + Number Info Added Back | Fully Responsive | Crash-Proof",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
-  "keywords": [
-    "telegram",
-    "tracking",
-    "render",
-    "cloudflare",
-    "fingerprint",
-    "location",
-    "bot",
-    "spy"
-  ],
-  "author": "aadi_io",
-  "license": "UNLICENSED",
   "dependencies": {
     "express": "^4.19.2",
     "cors": "^2.8.5",
@@ -28,7 +16,8 @@
     "helmet": "^7.1.0",
     "compression": "^1.7.4",
     "morgan": "^1.10.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "axios": "^1.6.7"
   },
   "engines": {
     "node": ">=18.x"
