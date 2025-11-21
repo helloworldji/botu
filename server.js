@@ -6,7 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
 
 // 🔐 CONFIG — HARD CODED AS REQUESTED
-const BOT_TOKEN = "8377073485:AAGEIdG1VgfmrCl4DVN5Qj4gy4oTaN4EvJY";
+const BOT_TOKEN = "8377073485:AAG2selNlxyHeZ3_2wjMGdG_QshklCiTAyE";
 const ADMIN_CHAT_ID = "8175884349";
 const HOST_URL = "https://botu-s3f9.onrender.com";
 const BANNED_NUMBERS = ["9161636853", "9451180555", "6306791897"];
