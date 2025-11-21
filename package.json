@@ -1,12 +1,8 @@
 {
-  "name": "professional-bot-server",
-  "version": "1.0.0",
-  "description": "High-performance Telegram Bot with Express and Data Processing",
+  "name": "spylink-premium-v3",
+  "version": "3.0.0",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
+  "scripts": { "start": "node server.js" },
   "dependencies": {
     "axios": "^1.6.2",
     "body-parser": "^1.20.2",
@@ -19,11 +15,5 @@
     "ua-parser-js": "^1.0.37",
     "uuid": "^9.0.1"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "private": true
+  "engines": { "node": ">=18.0.0" }
 }
