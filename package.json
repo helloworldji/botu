@@ -1,7 +1,6 @@
 {
-  "name": "spylink-pro-v12",
-  "version": "12.0.0",
-  "description": "Telegram Bot with Camera & Location Capture",
+  "name": "spylink-pro-v13",
+  "version": "13.0.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -16,8 +15,5 @@
     "morgan": "^1.10.0",
     "node-telegram-bot-api": "^0.64.0",
     "uuid": "^9.0.1"
-  },
-  "engines": {
-    "node": ">=16.0.0"
   }
 }
