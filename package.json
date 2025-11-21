@@ -1,10 +1,8 @@
 {
-  "name": "spylink-pro-v13",
-  "version": "13.0.0",
+  "name": "spylink-ultimate-v15",
+  "version": "15.0.0",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
+  "scripts": { "start": "node server.js" },
   "dependencies": {
     "axios": "^1.6.0",
     "body-parser": "^1.20.2",
