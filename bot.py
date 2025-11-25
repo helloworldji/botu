@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import os
 import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -21,8 +23,6 @@ except ImportError:
 API_TOKEN = '8377073485:AAG5syeWrjdYS71Nc4VoqZQnwBkum3tMwto'.strip() 
 
 ADMIN_ID = 8175884349
-API_BASE_URL = "https://danger-vip-key.shop/api.php" 
-API_KEY = "ForApp"
 
 # ---------------------------------------------------------
 # SETUP
@@ -38,13 +38,37 @@ dp = Dispatcher()
 user_ids = set()
 
 # ---------------------------------------------------------
+# WEB SERVER FOR RENDER UPTIME
+# ---------------------------------------------------------
+async def health_check(request):
+    """
+    Simple route for Uptime Robot to ping.
+    """
+    return web.Response(text="Bot is ALIVE and Running!", status=200)
+
+async def start_web_server():
+    """
+    Starts a background web server to satisfy Render's port requirement.
+    """
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render provides the PORT environment variable
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"✅ Web Server started on port {port}")
+
+# ---------------------------------------------------------
 # UI HELPER FUNCTIONS
 # ---------------------------------------------------------
 def get_main_menu():
     """Start screen buttons"""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📞 Support", url="https://t.me/aadi_io")],
-        [InlineKeyboardButton(text="👨‍💻 Developer: @aadi_io", url="https://t.me/aadi_io")] 
+        [InlineKeyboardButton(text="🔍 Search Number", callback_data="start_search")],
+        [InlineKeyboardButton(text="📞 Support", url="https://t.me/aadi_io")]
     ])
 
 def get_result_keyboard():
@@ -64,11 +88,11 @@ def format_response_ui(data_list):
     Formats the JSON into a beautiful 'Tree-Style' UI
     """
     if not data_list or not isinstance(data_list, list):
-        return "❌ <b>No records found.</b>\n<i>Please check the number and try again.</i>"
+        return "❌ <b>No Data Found.</b>\n<i>The number doesn't exist in our premium database.</i>"
 
     count = len(data_list)
-    output_text = f"📂 <b>DATABASE RESULT</b>\n"
-    output_text += f"<i>Found {count} records matching your query.</i>\n"
+    output_text = f"💎 <b>PREMIUM INFO RESULT</b>\n"
+    output_text += f"<i>Successfully fetched {count} record(s).</i>\n"
 
     for i, item in enumerate(data_list):
         # Extract and Clean Data
@@ -86,23 +110,23 @@ def format_response_ui(data_list):
         if i > 0: output_text += "\n══════════════════════\n"
 
         output_text += (
-            f"\n<b>📄 RECORD #{i+1}</b>\n"
-            f"╭─ 👤 <b>Personal Info</b>\n"
+            f"\n<b>👤 PERSON #{i+1}</b>\n"
+            f"╭─ 🆔 <b>Identity Info</b>\n"
             f"│  ├ <b>Name:</b> {name}\n"
             f"│  └ <b>Father:</b> {fname}\n"
             f"│\n"
-            f"├─ 🔐 <b>Identity</b>\n"
+            f"├─ 🔒 <b>Secure IDs</b>\n"
             f"│  ├ <b>UID:</b> <code>{uid}</code>\n"
-            f"│  └ <b>Reg ID:</b> {user_id}\n"
+            f"│  └ <b>ID:</b> {user_id}\n"
             f"│\n"
-            f"├─ 📞 <b>Contact Details</b>\n"
+            f"├─ 📞 <b>Contact Data</b>\n"
             f"│  ├ <b>Mobile:</b> <code>{mobile}</code>\n"
             f"│  ├ <b>Alt:</b> {alt}\n"
             f"│  └ <b>Email:</b> {email}\n"
             f"│\n"
-            f"╰─ 📍 <b>Location</b>\n"
+            f"╰─ 📍 <b>Address Info</b>\n"
             f"   ├ <b>Circle:</b> {circle}\n"
-            f"   └ <b>Address:</b> {address}\n"
+            f"   └ <b>Addr:</b> {address}\n"
         )
         
         # Limit check
@@ -113,15 +137,23 @@ def format_response_ui(data_list):
     return output_text
 
 async def fetch_api_data(number):
-    url = f"{API_BASE_URL}?key={API_KEY}&number={number}"
+    """
+    Fetches data from the API using the simple hardcoded structure.
+    """
+    # Simply constructing the URL as requested: key=ForApp
+    url = f"https://danger-vip-key.shop/api.php?key=ForApp&number={number}"
+    
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get(url, verify_ssl=False, timeout=10) as response:
+            # Increased timeout to 30 seconds to fix API Errors
+            async with session.get(url, verify_ssl=False, timeout=30) as response:
                 if response.status == 200:
                     return await response.json()
-                return None
+                else:
+                    logging.error(f"API returned status: {response.status}")
+                    return None
         except Exception as e:
-            logging.error(f"API Error: {e}")
+            logging.error(f"API Error: {type(e).__name__} - {e}")
             return None
 
 # ---------------------------------------------------------
@@ -133,15 +165,22 @@ async def cmd_start(message: Message):
     user_ids.add(message.from_user.id)
     
     welcome_msg = (
-        f"👋 <b>Hello, {message.from_user.first_name}!</b>\n\n"
-        "🏛️ <b>Student Verification Portal</b>\n"
-        "I can verify student details instantly from the central database.\n\n"
-        "⚡ <b>How to use:</b>\n"
-        "Just send any <b>10-digit Mobile Number</b> to begin.\n\n"
+        f"👋 <b>Welcome, {message.from_user.first_name}!</b>\n\n"
+        "💎 <b>Premium Mobile Info Bot</b>\n"
+        "I provide instant access to owner details from the central database.\n\n"
+        "👇 <b>Click the button below to start searching.</b>\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "👨‍💻 <b>Bot By:</b> @aadi_io"
+        "👨‍💻 <b>Powered By:</b> @aadi_io"
     )
     await message.answer(welcome_msg, reply_markup=get_main_menu())
+
+@dp.callback_query(F.data == "start_search")
+async def on_search_click(callback: CallbackQuery):
+    """
+    Handles the Search button click
+    """
+    await callback.message.answer("⌨️ <b>Please type the 10-digit mobile number now:</b>")
+    await callback.answer() # Removes the loading animation on the button
 
 @dp.message(Command("admin"))
 async def cmd_admin(message: Message):
@@ -177,6 +216,7 @@ async def cmd_broadcast(message: Message):
         is_reply = False
 
     status = await message.answer("🚀 <b>Processing Broadcast...</b>")
+    # Fixed Syntax Error Here (added the 0)
     count, failed = 0, 0
     
     for uid in user_ids:
@@ -204,11 +244,11 @@ async def handle_verification(message: Message):
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     if not message.text.isdigit() or len(message.text) < 10:
-        await message.answer("⚠️ <b>Invalid Format</b>\nPlease send a valid mobile number.")
+        await message.answer("⚠️ <b>Invalid Number</b>\nPlease send a valid 10-digit mobile number.")
         return
 
     # Use a placeholder message for better UX
-    wait_msg = await message.answer("🔍 <b>Searching Database...</b>\n<i>Please wait...</i>")
+    wait_msg = await message.answer("🔍 <b>Scanning Database...</b>\n<i>Fetching premium details...</i>")
     
     api_data = await fetch_api_data(message.text)
     
@@ -216,7 +256,7 @@ async def handle_verification(message: Message):
     result_text = format_response_ui(api_data)
     
     # If successful, show with Close button, otherwise just text
-    kb = get_result_keyboard() if "RECORD" in result_text else None
+    kb = get_result_keyboard() if "RESULT" in result_text else None
     
     await wait_msg.edit_text(result_text, reply_markup=kb)
 
@@ -225,7 +265,11 @@ async def handle_verification(message: Message):
 # ---------------------------------------------------------
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🚀 Premium Bot Running...")
+    
+    # Start the dummy web server for Render Uptime
+    await start_web_server()
+    
+    print("🚀 Premium Bot Running with Web Server...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
